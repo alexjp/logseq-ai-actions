@@ -101,10 +101,16 @@ export function buildRegistry(
   // the built-in slot order, so seed actions stay at the top of the
   // slash menu even when shadowed.
   const merged: Action[] = builtin.map((b) => userById.get(b.id) ?? b);
-  // Append any user actions that don't shadow a built-in, in JSON order.
+  // Append any non-shadowing user actions, then sort only the appended
+  // tail case-sensitively by title. Built-in slots keep their
+  // declaration order.
+  const tailStart = merged.length;
   for (const u of userActions) {
     if (!builtinIds.has(u.id)) merged.push(u);
   }
+  const tail = merged.splice(tailStart);
+  tail.sort((a, b) => a.title.localeCompare(b.title));
+  merged.push(...tail);
 
   return { actions: merged, errors };
 }
