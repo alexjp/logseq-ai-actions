@@ -148,6 +148,7 @@ function rebuildRegistry(showToastOnError: boolean): void {
   const result = buildRegistry(SEED_ACTIONS, userActionsJson);
   activeActionsAll = result.actions;
   activeActions = filterHiddenActions(result.actions, hiddenActionIds);
+  const hiddenActionIdSet = new Set(hiddenActionIds);
   if (result.errors.length > 0) {
     console.warn("logseq-ai-actions: user actions validation errors", result.errors);
     if (showToastOnError) {
@@ -162,12 +163,13 @@ function rebuildRegistry(showToastOnError: boolean): void {
   // Register slash command + command-palette entry + block context-menu
   // item for each action id we haven't seen before. Logseq has no
   // deregister API for any of these, so we iterate the UNFILTERED
-  // registry — hidden actions still get their handlers attached at
-  // startup, and stale entries that survive a hide/un-hide cycle in
-  // a single session keep working. Actions that are hidden after
-  // registration still respond to slash / palette / context-menu
-  // invocations until plugin reload (REQUIREMENTS §16; same caveat as
-  // user-action add/remove).
+  // registry — hidden actions still get slash/palette handlers at
+  // startup, but their context-menu entries are skipped (checked
+  // against hiddenActionIdSet). Actions that are hidden after
+  // registration still respond to stale slash/palette entries until
+  // plugin reload. Un-hiding an action mid-session won't restore its
+  // context-menu entry until reload (same caveat as user-action
+  // add/remove).
   for (const action of activeActionsAll) {
     if (registeredInvocationIds.has(action.id)) continue;
     registeredInvocationIds.add(action.id);
@@ -190,17 +192,22 @@ function rebuildRegistry(showToastOnError: boolean): void {
     // Block context-menu entry: handler receives the clicked block's
     // uuid, which we pass to runAction so the action runs on that
     // specific block rather than wherever the cursor happens to be.
-    logseq.Editor.registerBlockContextMenuItem(`AI: ${action.title}`, async (e) => {
-      const fresh = activeActionsAll.find((a) => a.id === action.id);
-      if (!fresh) {
-        logseq.UI.showMsg(
-          `Action '${action.id}' is no longer available — reload the plugin to refresh the menus`,
-          "warning",
-        );
-        return;
-      }
-      await runAction(fresh, runActionCtx, e.uuid);
-    });
+    // Skipped for hidden actions — they still show in the context
+    // menu if hidden mid-session until reload, but new hidden actions
+    // (e.g., set before load) won't appear.
+    if (!hiddenActionIdSet.has(action.id)) {
+      logseq.Editor.registerBlockContextMenuItem(`AI: ${action.title}`, async (e) => {
+        const fresh = activeActionsAll.find((a) => a.id === action.id);
+        if (!fresh) {
+          logseq.UI.showMsg(
+            `Action '${action.id}' is no longer available — reload the plugin to refresh the menus`,
+            "warning",
+          );
+          return;
+        }
+        await runAction(fresh, runActionCtx, e.uuid);
+      });
+    }
   }
 }
 

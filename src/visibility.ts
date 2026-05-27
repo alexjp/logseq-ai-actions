@@ -5,11 +5,12 @@ import type { Action } from "./action";
  * returns the input untouched when nothing is hidden.
  *
  * Applied at the boundary between the merged registry (built-ins +
- * `userActionsJson`) and every consumer that surfaces actions to the
- * user — toolbar picker, slash commands, command palette, block
- * context menu. The Manage Actions panel uses the unfiltered registry
- * plus the raw `hiddenActionIds` list so it can still display and
- * restore hidden entries (see REQUIREMENTS §16).
+ * `userActionsJson`) and picker surfaces — toolbar picker and
+ * diff-panel re-run dropdowns. Block context menu filtering is
+ * handled separately in `rebuildRegistry` (src/index.ts) via a direct
+ * check against `hiddenActionIds`. The Manage Actions panel uses the
+ * unfiltered registry plus the raw `hiddenActionIds` list so it can
+ * still display and restore hidden entries (see REQUIREMENTS §16).
  */
 export function filterHiddenActions(
   actions: readonly Action[],
