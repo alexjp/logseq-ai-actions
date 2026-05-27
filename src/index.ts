@@ -163,13 +163,13 @@ function rebuildRegistry(showToastOnError: boolean): void {
   // Register slash command + command-palette entry + block context-menu
   // item for each action id we haven't seen before. Logseq has no
   // deregister API for any of these, so we iterate the UNFILTERED
-  // registry — hidden actions still get slash/palette handlers at
-  // startup, but their context-menu entries are skipped (checked
-  // against hiddenActionIdSet). Actions that are hidden after
-  // registration still respond to stale slash/palette entries until
+  // registry — hidden actions still get palette handlers at startup,
+  // but their slash-command and context-menu entries are skipped
+  // (checked against hiddenActionIdSet). Actions that are hidden
+  // after registration still respond to stale palette entries until
   // plugin reload. Un-hiding an action mid-session won't restore its
-  // context-menu entry until reload (same caveat as user-action
-  // add/remove).
+  // slash command or context-menu entry until reload (same caveat as
+  // user-action add/remove).
   for (const action of activeActionsAll) {
     if (registeredInvocationIds.has(action.id)) continue;
     registeredInvocationIds.add(action.id);
@@ -184,7 +184,9 @@ function rebuildRegistry(showToastOnError: boolean): void {
       }
       await runAction(fresh, runActionCtx);
     };
-    logseq.Editor.registerSlashCommand(slashLabelFor(action), handler);
+    if (!hiddenActionIdSet.has(action.id)) {
+      logseq.Editor.registerSlashCommand(slashLabelFor(action), handler);
+    }
     logseq.App.registerCommandPalette(
       { key: `logseq-ai-actions/${action.id}`, label: `AI: ${action.title}` },
       handler,
