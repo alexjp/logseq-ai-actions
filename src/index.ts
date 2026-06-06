@@ -1,6 +1,7 @@
 import "@logseq/libs";
 
 import type { Action } from "./action";
+import { normalizeKeybinding } from "./action";
 import { runFirstRunFlow, showRemoteTransitionNotice } from "./adapter/consent";
 import {
   getCachedEditingBlockUuid,
@@ -187,8 +188,29 @@ function rebuildRegistry(showToastOnError: boolean): void {
     if (!hiddenActionIdSet.has(action.id)) {
       logseq.Editor.registerSlashCommand(slashLabelFor(action), handler);
     }
+    // Keybinding is passed through unchanged — Logseq's Keymap UI lets
+    // users override whatever the plugin registers, so this is a default,
+    // not a lock. Edits to an existing action's `keybinding` (like edits
+    // to its title or prompt) only take effect on the NEXT plugin reload
+    // because `registeredInvocationIds` skips re-registration; a NEW id
+    // always picks the binding up immediately.
+    //
+    // The `key` MUST NOT be prefixed with `logseq-ai-actions/` — Logseq's
+    // host builds the keymap id as `plugin.<pid>/<key>`, and cljs
+    // keywords only allow one `/` (namespace/name). A prefixed key
+    // produces a doubled-slash id that fails the keymap lookup on every
+    // keypress and throws a reader error when the user clears the
+    // binding in the Keyboard Editor. The host already namespaces the
+    // id with the plugin id, so we pass the action id bare.
+    const paletteKeybinding = normalizeKeybinding(action.keybinding);
     logseq.App.registerCommandPalette(
-      { key: `logseq-ai-actions/${action.id}`, label: `AI: ${action.title}` },
+      paletteKeybinding
+        ? {
+            key: action.id,
+            label: `AI: ${action.title}`,
+            keybinding: paletteKeybinding,
+          }
+        : { key: action.id, label: `AI: ${action.title}` },
       handler,
     );
     // Block context-menu entry: handler receives the clicked block's
@@ -275,7 +297,7 @@ function registerAllInvocations(): void {
   };
   logseq.Editor.registerSlashCommand("AI Diagnostics", diagnosticsHandler);
   logseq.App.registerCommandPalette(
-    { key: "logseq-ai-actions/diagnostics", label: "AI: Diagnostics" },
+    { key: "diagnostics", label: "AI: Diagnostics" },
     diagnosticsHandler,
   );
 
@@ -283,10 +305,7 @@ function registerAllInvocations(): void {
     await openManagePanel();
   };
   logseq.Editor.registerSlashCommand("AI Manage Actions", manageHandler);
-  logseq.App.registerCommandPalette(
-    { key: "logseq-ai-actions/manage", label: "AI: Manage Actions" },
-    manageHandler,
-  );
+  logseq.App.registerCommandPalette({ key: "manage", label: "AI: Manage Actions" }, manageHandler);
 
   // Toolbar button — discoverability for mouse-first users. The `data-on-click`
   // attribute binds to a method exposed via logseq.provideModel below. Inline

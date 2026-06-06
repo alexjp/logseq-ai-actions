@@ -407,6 +407,21 @@ Decision (2026-05-07): no default chord prefix on seed actions, since any prefix
 - [x] REQUIREMENTS — new §17 documenting the field shape + register-only stance.
 - [x] Changeset: `.changeset/keybindings.md` (minor bump).
 
+### Keybindings — fix doubled keymap id (2026-06-06)
+
+Bug: the keymap row appeared in Logseq's **Settings → Keyboard** editor with the user-set chord, but pressing the chord did **not** fire the action. DevTools showed `{:shortcut/binding-not-found {:id :/plugin.logseq-ai-actions}, :line 82}` firing on **every** keypress (not just on plugin load). Clearing the binding in the editor threw a cljs reader error: `Invalid keyword: plugin.logseq-ai-actions/logseq-ai-actions/grammar-check.`.
+
+Root cause: the host's `simple-cmd-keybinding->shortcut-args` builds the keymap id as `(str "plugin." pid "/" key)`. ClojureScript keywords only allow **one** `/` (namespace/name separator). We were passing `key = "logseq-ai-actions/${action.id}"` (with our own slash-prefix), so the resulting id was `plugin.logseq-ai-actions/logseq-ai-actions/<action-id>` — two slashes → invalid cljs keyword → the keymap lookup failed on every keypress, and the write-back path threw when the user cleared the binding. The same doubled prefix was latent on the `diagnostics` and `manage` palette entries (no plugin-set binding, so the bug never surfaced — but a user trying to assign one in Keymap would have hit it).
+
+Fix: drop the `logseq-ai-actions/` prefix on every `registerCommandPalette({ key, … })` call in `src/index.ts`. The host already namespaces the keymap id with `plugin.<pid>/`, so the action id passes through bare. Resulting id: `plugin.logseq-ai-actions/grammar-check` — one slash, valid cljs keyword, keymap lookup succeeds, the chord fires, the binding round-trips. Comment block on the action loop expanded to note why the key MUST NOT be prefixed (so the next reader doesn't add the prefix back).
+
+- [x] Implement: `src/index.ts` — `key: \`logseq-ai-actions/${action.id}\`` → `key: action.id` (both branches of the `paletteKeybinding ?` ternary); `key: "logseq-ai-actions/diagnostics"` → `key: "diagnostics"`; `key: "logseq-ai-actions/manage"` → `key: "manage"`. New comment block on lines 197–204 documents the doubled-prefix pitfall.
+- [x] `pnpm typecheck` clean.
+- [x] `pnpm lint` clean (Biome reformatted the `manage` palette call to a single line).
+- [ ] User verify (`pnpm build` + reload): chord fires the action; keymap editor entry round-trips; `:shortcut/binding-not-found` warning no longer repeats on every keypress; clearing the binding in the editor does not throw the cljs error.
+- [-] Unit tests for the bug specifically — the regression is an integration test against Logseq host behaviour, not pure logic; defer to the manual-verify gate.
+- [-] Changeset — folded into the existing `.changeset/keybindings.md`; the changelog line will be amended at release time to mention the fix.
+
 ## Deferred / v2 candidates
 
 - True `selection` scope with block-range splicing — see REQUIREMENTS §14

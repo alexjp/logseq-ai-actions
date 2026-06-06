@@ -93,6 +93,29 @@ export const DetailReadonly: FunctionComponent<DetailReadonlyProps> = ({
         <input type="text" class="manage-input" disabled value={action.outputMode} />
       </Field>
 
+      <Field
+        label="Keybinding (optional)"
+        hint={
+          action.keybinding === undefined
+            ? "No default. Assign one in Logseq's Settings → Keymap."
+            : "Logseq Keymap overrides any value set here."
+        }
+      >
+        <input
+          type="text"
+          class="manage-input"
+          disabled
+          value={
+            action.keybinding === undefined
+              ? ""
+              : typeof action.keybinding === "string"
+                ? action.keybinding
+                : JSON.stringify(action.keybinding)
+          }
+          placeholder="(none — set in Logseq's Keymap)"
+        />
+      </Field>
+
       <div class="manage-field">
         <span class="manage-field-label">System prompt</span>
         <div class="manage-prompt-wrap">

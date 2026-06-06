@@ -9,6 +9,12 @@ export interface DraftAction {
   outputMode: string;
   kind: string;
   systemPrompt: string;
+  /**
+   * Free-text chord (e.g. `"mod+shift+a g"`) entered in the editor.
+   * Object-form bindings are flattened to JSON for display; the editor
+   * only authors the string form. Empty string is treated as "no binding".
+   */
+  keybinding: string;
 }
 
 export const BLANK_DRAFT: DraftAction = {
@@ -19,6 +25,7 @@ export const BLANK_DRAFT: DraftAction = {
   outputMode: "diff-panel",
   kind: "text",
   systemPrompt: "",
+  keybinding: "",
 };
 
 export function draftFrom(a: Action): DraftAction {
@@ -30,7 +37,32 @@ export function draftFrom(a: Action): DraftAction {
     outputMode: a.outputMode,
     kind: a.kind,
     systemPrompt: a.systemPrompt,
+    keybinding: keybindingToInput(a.keybinding),
   };
+}
+
+/**
+ * Flatten an action's `keybinding` (string or object) into the string
+ * the editor input expects. Object forms collapse to a JSON string so
+ * the user sees the full structure; the input only edits the string
+ * form. Undefined → empty string (treated as "no binding" by the editor).
+ */
+function keybindingToInput(kb: Action["keybinding"]): string {
+  if (kb === undefined) return "";
+  if (typeof kb === "string") return kb;
+  return JSON.stringify(kb);
+}
+
+/**
+ * Strip the empty-string `keybinding` field from a draft before saving,
+ * so the persisted JSON stays compact (no `"keybinding": ""` cruft).
+ * Returns a new object — never mutates the input.
+ */
+export function draftToCandidate(d: DraftAction): Omit<DraftAction, "keybinding"> & {
+  keybinding?: string;
+} {
+  const { keybinding, ...rest } = d;
+  return keybinding.trim() === "" ? { ...rest } : { ...rest, keybinding };
 }
 
 /** Build a kebab-case id suggestion from a free-text title. */

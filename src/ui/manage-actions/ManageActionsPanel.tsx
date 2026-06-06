@@ -14,6 +14,7 @@ import {
   BLANK_DRAFT,
   type DraftAction,
   draftFrom,
+  draftToCandidate,
   filterByQuery,
   sortByTitle,
   type View,
@@ -222,7 +223,9 @@ export const ManageActionsPanel: FunctionComponent<ManageActionsPanelProps> = ({
 
   const validateDraft = (d: DraftAction, exceptIndex: number | null): Record<string, string> => {
     const errs: Record<string, string> = {};
-    const parsed = ActionSchema.safeParse(d);
+    // Strip the empty-string keybinding so it doesn't get rejected as
+    // an "empty keybinding string" — an unfilled optional is valid.
+    const parsed = ActionSchema.safeParse(draftToCandidate(d));
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
         const field = String(issue.path[0] ?? "");
@@ -257,7 +260,7 @@ export const ManageActionsPanel: FunctionComponent<ManageActionsPanelProps> = ({
       setErrors(errs);
       return;
     }
-    const parsed = ActionSchema.parse(draft); // safe — validateDraft just passed
+    const parsed = ActionSchema.parse(draftToCandidate(draft)); // safe — validateDraft just passed
     const next = [...userActions];
     if (view.kind === "create") next.push(parsed);
     else next[view.index] = parsed;

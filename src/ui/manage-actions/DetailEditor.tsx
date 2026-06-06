@@ -177,6 +177,22 @@ export const DetailEditor: FunctionComponent<DetailEditorProps> = ({
         </select>
       </Field>
 
+      <Field
+        label="Keybinding (optional)"
+        error={liveErrors.keybinding}
+        hint="Logseq Keymap overrides any value set here. Example: mod+shift+a g"
+      >
+        <input
+          type="text"
+          class="manage-input"
+          value={draft.keybinding}
+          onInput={update("keybinding")}
+          placeholder="e.g. mod+shift+a g"
+          autocomplete="off"
+          spellcheck={false}
+        />
+      </Field>
+
       <div class={`manage-field${liveErrors.systemPrompt ? " error" : ""}`}>
         <span class="manage-field-label">System prompt</span>
         <div class={`manage-prompt-wrap${liveErrors.systemPrompt ? " error" : ""}`}>

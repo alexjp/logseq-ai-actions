@@ -13,11 +13,68 @@ const OUTPUT_MODES: readonly OutputMode[] = [
 const KINDS: readonly ActionKind[] = ["text", "vision"];
 
 /**
+ * Optional keyboard shortcut for an action. Two authored shapes —
+ * mirroring Logseq's `SimpleCommandKeybinding` — converge on the same
+ * normalised `SimpleCommandKeybinding` form at registration time.
+ *
+ * - String form (e.g. `"mod+shift+a g"`) — sugar that expands to
+ *   `{ binding: <string>, mode: "global" }`.
+ * - Object form — `{ binding: string | string[], mode?, mac? }`.
+ *   `mode` defaults to `"global"` when omitted; `mac` is preserved.
+ *
+ * Empty strings and empty `binding` arrays are rejected so a half-saved
+ * draft can't register a no-op binding. The schema preserves whichever
+ * shape was authored — string round-trips as a string, object as an
+ * object — so the JSON textarea is identity for the object form.
+ */
+export const KeybindingSchema = z.union([
+  z.string().min(1, "keybinding string is empty"),
+  z.object({
+    binding: z.union([
+      z.string().min(1, "keybinding.binding string is empty"),
+      z
+        .array(z.string().min(1, "keybinding.binding contains an empty string"))
+        .min(1, "keybinding.binding array is empty"),
+    ]),
+    mode: z.enum(["global", "non-editing", "editing"]).optional(),
+    mac: z.string().optional(),
+  }),
+]);
+
+export type Keybinding = z.infer<typeof KeybindingSchema>;
+
+/** Logseq's `SimpleCommandKeybinding` shape — the only form the SDK accepts. */
+export interface SimpleCommandKeybinding {
+  mode?: "global" | "non-editing" | "editing";
+  binding: string | string[];
+  mac?: string;
+}
+
+/**
+ * Convert the schema's union form into the SDK's `SimpleCommandKeybinding`
+ * shape. String → `{ binding, mode: "global" }`; object fills missing
+ * `mode` with `"global"`; `undefined` → `undefined`. Pure — no SDK import.
+ */
+export function normalizeKeybinding(
+  kb: Keybinding | undefined,
+): SimpleCommandKeybinding | undefined {
+  if (kb === undefined) return undefined;
+  if (typeof kb === "string") {
+    return { binding: kb, mode: "global" };
+  }
+  return {
+    ...(kb.mode ? { mode: kb.mode } : { mode: "global" }),
+    binding: kb.binding,
+    ...(kb.mac ? { mac: kb.mac } : {}),
+  };
+}
+
+/**
  * Canonical Action shape. Single source of truth for both built-in seed
  * actions (TS literals validated at build time) and user-defined actions
  * loaded from JSON at runtime — both paths converge on this schema.
  *
- * See REQUIREMENTS §4–§6 for scope/outputMode semantics.
+ * See REQUIREMENTS §4–§6 for scope/outputMode semantics, §17 for keybinding.
  */
 export const ActionSchema = z.object({
   id: z.string().min(1, "id is required"),
@@ -29,6 +86,7 @@ export const ActionSchema = z.object({
   // `kind` is optional with a default of "text" — every existing action
   // and every existing user-defined action JSON literal stays valid.
   kind: z.enum(KINDS as [ActionKind, ...ActionKind[]]).default("text"),
+  keybinding: KeybindingSchema.optional(),
 });
 
 export type Action = z.infer<typeof ActionSchema>;
