@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0
+
+### Minor Changes
+
+- Assign keyboard shortcuts to user-defined AI actions via Logseq's keymap UI or a portable `keybinding` field in `userActionsJson`. Manage Actions panel gets a `Keybinding (optional)` string input on the action detail editor; the keymap UI still wins for chord assignment.
+
+  Every action — built-in or user-defined — already registers as a `logseq.App.registerCommandPalette` entry. Those entries surface automatically in **Settings → Keyboard shortcuts** for user assignment with no extra plugin work. The optional schema field layers on top so a binding travels with the action across graphs and exports (two shapes: a string chord like `"mod+shift+s"`, or the full Logseq `SimpleCommandKeybinding` object form for mac overrides and mode-specific bindings). The plugin does NOT ship defaults on the 13 built-in seed actions — any prefix risks colliding with Logseq core or other plugins.
+
+  Pinned the doubled-keymap-id gotcha discovered while integrating against the host: `registerCommandPalette`'s `key` is verbatim, and the host's `simple-cmd-keybinding->shortcut-args` builds the keymap id as `(str "plugin." pid "/" key)`. ClojureScript keywords only allow one `/` (namespace/name separator), so a `key` like `"logseq-ai-actions/<id>"` produced a doubled-slash id that failed every keymap lookup (`:shortcut/binding-not-found` on **every** keypress, not just on load) and threw a cljs reader error when the user cleared the binding in the Keymap editor. Fix: pass the action id bare — the host already namespaces the id with `plugin.<pid>/`. Comment block in `src/index.ts` documents the pitfall so the next reader doesn't add the prefix back.
+
+  Tests: 17 new cases on `KeybindingSchema` (union acceptance + rejection for empty / unknown-mode / non-string members) and `normalizeKeybinding` (string→object expansion, `mode` default, `mac` preservation, `undefined` passthrough); 14 new cases on `draftFrom` (string / object / uppercase / undefined flattening) and `draftToCandidate` (empty-drop, lowercase normalisation, immutability, multi-step chord preservation).
+
 ## 1.1.2
 
 ### Patch Changes

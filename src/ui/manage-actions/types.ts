@@ -54,6 +54,24 @@ function keybindingToInput(kb: Action["keybinding"]): string {
 }
 
 /**
+ * Normalise a string-form keybinding entered in the editor: trim
+ * surrounding whitespace and lowercase the chord tokens so authors can
+ * type what they see in the Logseq keymap UI hints (e.g. "Mod+Shift+A")
+ * and have the stored value match the canonical form. Logseq's keymap
+ * parser is case-insensitive, so this is display-only — it does not
+ * change which keys the chord binds to.
+ *
+ * The object form (the JSON-shape with `binding` / `mode` / `mac`) is
+ * NOT authored through this input — the schema's object-accepting branch
+ * handles it when the JSON settings textarea is the authoring surface.
+ * The editor input is string-form only; this function is a no-op for
+ * that boundary.
+ */
+function normalizeChordString(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+/**
  * Strip the empty-string `keybinding` field from a draft before saving,
  * so the persisted JSON stays compact (no `"keybinding": ""` cruft).
  * Returns a new object — never mutates the input.
@@ -62,7 +80,8 @@ export function draftToCandidate(d: DraftAction): Omit<DraftAction, "keybinding"
   keybinding?: string;
 } {
   const { keybinding, ...rest } = d;
-  return keybinding.trim() === "" ? { ...rest } : { ...rest, keybinding };
+  const normalized = normalizeChordString(keybinding);
+  return normalized === "" ? { ...rest } : { ...rest, keybinding: normalized };
 }
 
 /** Build a kebab-case id suggestion from a free-text title. */

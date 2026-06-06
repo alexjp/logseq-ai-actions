@@ -326,7 +326,7 @@ Shadowing happens first; hide applies to whatever's effective:
 
 ### Approach
 
-Every action — built-in or user-defined — already registers as a `logseq.App.registerCommandPalette` entry with a stable key (`logseq-ai-actions/<id>`). Those entries appear automatically in Logseq's **Settings → Keyboard shortcuts** UI, where users can assign or rebind any chord with no extra plugin work. That's the primary surface for end-user customisation; the plugin layers an optional schema field on top for portable defaults inside user-action JSON.
+Every action — built-in or user-defined — already registers as a `logseq.App.registerCommandPalette` entry with a stable key (`<id>` — see the "Don't prefix the `key`" gotcha below). Those entries appear automatically in Logseq's **Settings → Keyboard shortcuts** UI, where users can assign or rebind any chord with no extra plugin work. That's the primary surface for end-user customisation; the plugin layers an optional schema field on top for portable defaults inside user-action JSON.
 
 ### No shipped defaults on seed actions
 
@@ -336,8 +336,8 @@ The plugin does NOT ship a default keybinding for any built-in action. Reasoning
 
 Optional `keybinding` field accepts:
 
-- **String form** — a Logseq chord string (e.g. `"mod+shift+a g"`). Sugar that expands at registration time to `{ binding: <string>, mode: "global" }`.
-- **Object form** — `{ binding: string | string[], mode?: 'global' | 'non-editing' | 'editing', mac?: string }`, mirroring Logseq's `SimpleCommandKeybinding`. Empty `binding` arrays and empty strings are rejected by the schema.
+- **String form** — a Logseq chord string (e.g. `"mod+shift+a g"`). Sugar that expands at registration time to `{ binding: <string>, mode: "global" }`. Lowercased by `draftToCandidate` (the editor's save path) so authors can type mixed-case ("Mod+Shift+A") and have the stored value match Logseq's keymap UI; Logseq's chord parser is case-insensitive, so this is display-only.
+- **Object form** — `{ binding: string | string[], mode?: 'global' | 'non-editing' | 'editing', mac?: string }`, mirroring Logseq's `SimpleCommandKeybinding`. Empty `binding` arrays and empty strings are rejected by the schema. The object form is NOT authored through the Manage panel editor (which is string-only); use the JSON settings textarea (`userActionsJson`) for that.
 
 The schema PRESERVES whichever shape was authored — JSON round-trip through the Manage panel is identity for the object form when the user keeps the JSON textarea as their authoring surface. The Manage panel's inline `Keybinding` input collapses object forms to their primary chord string when displayed, so editing in the panel reduces an object form to a string.
 
@@ -348,6 +348,18 @@ The schema PRESERVES whichever shape was authored — JSON round-trip through th
 ### Reload caveat
 
 `registeredInvocationIds` in `src/index.ts` is a one-shot guard that prevents the same action id from registering twice in the same session. Consequence: changing the `keybinding` on an existing action — just like changing its title or prompt — only takes effect on the NEXT plugin reload. Adding a new action with a `keybinding` always picks the binding up immediately. This is the same caveat that already applies to slash command and palette label edits.
+
+### Don't prefix the `key` (Logseq host gotcha — integration-tested 2026-06-06)
+
+`registerCommandPalette({ key, … })` takes the `key` field verbatim and hands it to the host's `simple-cmd-keybinding->shortcut-args`, which builds the keymap id as `(str "plugin." pid "/" key)`. ClojureScript keywords only allow **one** `/` (namespace/name separator). If the plugin passes `key = "<prefix>/<id>"` (its own slash-prefix baked in), the resulting id has two slashes and is an **invalid cljs keyword**.
+
+Symptoms:
+
+- The chord appears in Logseq's **Settings → Keyboard** editor with the user-set binding shown, but pressing it does NOT fire the action.
+- The host's `shortcut-binding` (line 82 of `frontend/modules/shortcut/data_helper.cljs`) emits `{:shortcut/binding-not-found {:id :/plugin.logseq-ai-actions}, :line 82}` on **every** keypress, not just on plugin load.
+- Clearing the binding in the editor throws a cljs reader error: `Invalid keyword: plugin.<pid>/<prefix>/<id>.`
+
+Fix: pass the `key` BARE — the action id alone, with no plugin prefix. The host's `plugin.<pid>/` segment is the only valid prefix, and it is added by the host, not by us. The code has a comment block on the registration call to keep future readers from "helpfully" adding the prefix back.
 
 ### Out of scope for this iteration
 

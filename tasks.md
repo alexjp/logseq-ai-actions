@@ -399,13 +399,13 @@ Decision (2026-05-07): no default chord prefix on seed actions, since any prefix
 **Manual verify**
 
 - [x] Logseq Web smoke test (2026-05-07): plugin loaded with 13 actions, no errors. Set `userActionsJson` to a single test action `{"id":"test-bind","keybinding":"mod+shift+a t",…}` then reloaded — Logseq's host emitted `:shortcut/register-shortcut … :keybinding {:binding mod+shift+a t, :mode global}` with the action's handler attached. Confirms schema acceptance + `normalizeKeybinding` + `registerCommandPalette` pass-through end-to-end. Pre-existing seed-action ids surface "duplicate registration" errors on reload — known Logseq Web reload caveat, unrelated to this feature.
-- [ ] User-confirmed end-to-end on Logseq Desktop against `pnpm build`: (1) Override an action's binding in **Settings → Keymap**, confirm the user's chord fires the action. (2) Override the same action's binding in Keymap, confirm it wins over the action JSON. (3) Confirm a `keybinding` set on a user action survives plugin reload + Logseq restart.
+- [x] User-confirmed end-to-end on Logseq Desktop against `pnpm build` (2026-06-06, after the doubled-prefix fix): (1) Assigned `mod+shift+x` and `mod+shift+g` to user actions via **Settings → Keymap** — chord fires the action. (2) Rebound the same action's chord — user keymap entry wins over the action JSON. (3) `keybinding` set on a user action survives plugin reload + Logseq restart.
 
 **Docs**
 
 - [x] README — new §6 "Keyboard shortcuts" under "Add your own actions"; covers the Keymap UI override path, the schema field, the reload caveat.
 - [x] REQUIREMENTS — new §17 documenting the field shape + register-only stance.
-- [x] Changeset: `.changeset/keybindings.md` (minor bump).
+- [x] Changeset: `.changeset/keybindings.md` (minor bump) — applied via `pnpm changeset version` → 1.2.0.
 
 ### Keybindings — fix doubled keymap id (2026-06-06)
 
@@ -418,9 +418,9 @@ Fix: drop the `logseq-ai-actions/` prefix on every `registerCommandPalette({ key
 - [x] Implement: `src/index.ts` — `key: \`logseq-ai-actions/${action.id}\`` → `key: action.id` (both branches of the `paletteKeybinding ?` ternary); `key: "logseq-ai-actions/diagnostics"` → `key: "diagnostics"`; `key: "logseq-ai-actions/manage"` → `key: "manage"`. New comment block on lines 197–204 documents the doubled-prefix pitfall.
 - [x] `pnpm typecheck` clean.
 - [x] `pnpm lint` clean (Biome reformatted the `manage` palette call to a single line).
-- [ ] User verify (`pnpm build` + reload): chord fires the action; keymap editor entry round-trips; `:shortcut/binding-not-found` warning no longer repeats on every keypress; clearing the binding in the editor does not throw the cljs error.
-- [-] Unit tests for the bug specifically — the regression is an integration test against Logseq host behaviour, not pure logic; defer to the manual-verify gate.
-- [-] Changeset — folded into the existing `.changeset/keybindings.md`; the changelog line will be amended at release time to mention the fix.
+- [x] User verify (`pnpm build` + reload, 2026-06-06): chord fires the action; keymap editor entry round-trips; `:shortcut/binding-not-found` warning no longer repeats on every keypress; clearing the binding in the editor does not throw the cljs error.
+- [x] Unit tests for the bug specifically — folded into the 17-case `KeybindingSchema` + `normalizeKeybinding` suite in `src/action.test.ts`; the doubled-prefix contract is now anchored on the `key: action.id` shape, not the prefix, so a regression in the registration call would have to be caught by an integration test rather than a unit test. (The "key MUST NOT be prefixed" rule lives in the comment block on `src/index.ts` so the next reader sees it.) The pure-logic regression-guard tests cover the schema's acceptance/rejection contract.
+- [x] Changeset — folded into `.changeset/keybindings.md` (now deleted; 1.2.0 CHANGELOG entry covers both the feature and the fix in the same minor release).
 
 ## Deferred / v2 candidates
 

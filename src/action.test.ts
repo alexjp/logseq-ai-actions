@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ActionSchema, parseAction } from "./action";
+import {
+  type Action,
+  ActionSchema,
+  KeybindingSchema,
+  normalizeKeybinding,
+  parseAction,
+} from "./action";
 
 const minimalAction = {
   id: "spellcheck",
@@ -82,5 +88,154 @@ describe("parseAction", () => {
 
   it("throws a Zod error with the failing field when invalid", () => {
     expect(() => parseAction({ ...minimalAction, scope: "nope" })).toThrow(/scope/);
+  });
+});
+
+describe("KeybindingSchema", () => {
+  // The schema is a union (string | object). Both shapes land in JSON, so
+  // a half-saved or partial import should keep both sides parseable. The
+  // rejection cases pin the "no empty bindings" contract: a registered
+  // chord that matches no real key would be a silent failure mode.
+  it("accepts a non-empty string form", () => {
+    const result = KeybindingSchema.parse("mod+shift+a g");
+    expect(result).toBe("mod+shift+a g");
+  });
+
+  it("accepts the object form with a string binding + mode + mac", () => {
+    const result = KeybindingSchema.parse({
+      binding: "mod+shift+a g",
+      mode: "non-editing",
+      mac: "cmd+shift+a g",
+    });
+    expect(result).toEqual({
+      binding: "mod+shift+a g",
+      mode: "non-editing",
+      mac: "cmd+shift+a g",
+    });
+  });
+
+  it("accepts the object form with a string[] binding", () => {
+    const result = KeybindingSchema.parse({
+      binding: ["mod+shift+a g", "mod+shift+a h"],
+    });
+    expect(result).toEqual({ binding: ["mod+shift+a g", "mod+shift+a h"] });
+  });
+
+  it("preserves the original shape (string stays a string, object stays an object)", () => {
+    // The JSON round-trip depends on this — see REQUIREMENTS §17. If the
+    // schema collapsed both forms to the object shape, an object form
+    // would survive a textarea round-trip but a string form would
+    // re-serialise as `{"binding":"...","mode":"global"}`, surprising
+    // users who hand-edit the JSON.
+    const s = KeybindingSchema.parse("mod+shift+a g");
+    expect(typeof s).toBe("string");
+    const o = KeybindingSchema.parse({ binding: "mod+shift+a g" });
+    expect(typeof o).toBe("object");
+  });
+
+  it("rejects an empty string", () => {
+    const result = KeybindingSchema.safeParse("");
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty `binding: []` array", () => {
+    const result = KeybindingSchema.safeParse({ binding: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an empty `binding: ""` string', () => {
+    const result = KeybindingSchema.safeParse({ binding: "" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty member inside a `binding: string[]`", () => {
+    const result = KeybindingSchema.safeParse({ binding: ["mod+a", ""] });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown `mode`", () => {
+    const result = KeybindingSchema.safeParse({
+      binding: "mod+shift+a g",
+      mode: "always-on",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-string member inside a `binding: string[]`", () => {
+    const result = KeybindingSchema.safeParse({ binding: ["mod+a", 42] });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("normalizeKeybinding", () => {
+  // The boundary normalizer that lets `index.ts` hand a single
+  // SimpleCommandKeybinding shape to `registerCommandPalette` regardless
+  // of how the user authored the field. Each case pins a separate
+  // contract so an accidental regression (e.g., re-deriving `mac` from
+  // `binding`) gets caught.
+  it("returns `undefined` for `undefined`", () => {
+    expect(normalizeKeybinding(undefined)).toBeUndefined();
+  });
+
+  it("expands a string form to `{ binding, mode: 'global' }`", () => {
+    expect(normalizeKeybinding("mod+shift+a g")).toEqual({
+      binding: "mod+shift+a g",
+      mode: "global",
+    });
+  });
+
+  it("fills missing `mode` with 'global' on the object form", () => {
+    expect(normalizeKeybinding({ binding: "mod+shift+a g" })).toEqual({
+      binding: "mod+shift+a g",
+      mode: "global",
+    });
+  });
+
+  it("preserves `mode` and `mac` when provided on the object form", () => {
+    expect(
+      normalizeKeybinding({
+        binding: ["mod+shift+a g", "mod+shift+a h"],
+        mode: "editing",
+        mac: "cmd+shift+a g",
+      }),
+    ).toEqual({
+      binding: ["mod+shift+a g", "mod+shift+a h"],
+      mode: "editing",
+      mac: "cmd+shift+a g",
+    });
+  });
+});
+
+describe("ActionSchema with keybinding", () => {
+  // Backwards-compat: every existing user-defined action JSON predates
+  // the `keybinding` field. Omitting it must keep the action valid and
+  // produce `keybinding: undefined`.
+  it("accepts an action without a `keybinding` field (back-compat)", () => {
+    const result = ActionSchema.parse(minimalAction);
+    expect(result.keybinding).toBeUndefined();
+  });
+
+  it("accepts a string `keybinding`", () => {
+    const result = ActionSchema.parse({ ...minimalAction, keybinding: "mod+shift+a g" });
+    expect(result.keybinding).toBe("mod+shift+a g");
+  });
+
+  it("accepts an object `keybinding`", () => {
+    const result = ActionSchema.parse({
+      ...minimalAction,
+      keybinding: { binding: "mod+shift+a g", mode: "non-editing" },
+    });
+    expect((result as Action).keybinding).toEqual({
+      binding: "mod+shift+a g",
+      mode: "non-editing",
+    });
+  });
+
+  it("rejects an action with an empty-string `keybinding`", () => {
+    expect(() => ActionSchema.parse({ ...minimalAction, keybinding: "" })).toThrow();
+  });
+
+  it("rejects an action with an empty `binding: []` `keybinding`", () => {
+    expect(() => ActionSchema.parse({ ...minimalAction, keybinding: { binding: [] } })).toThrow();
   });
 });

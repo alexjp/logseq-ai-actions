@@ -151,6 +151,36 @@ Hidden actions disappear immediately from the toolbar picker and from the diff-p
 
 Hidden state is per-graph, stored in the `hiddenActionIds` plugin setting. The Manage panel is the only writer — the gear-icon settings UI doesn't expose it as a separate field on purpose.
 
+### 6. (Optional) Keyboard shortcuts
+
+Every action — built-in or user-defined — already shows up in Logseq's **Settings → Keyboard shortcuts** UI as a command-palette entry. The primary way to bind a chord is therefore the same as for any other Logseq command: open the keymap UI, search for the action's title, assign your chord. Whatever you set there wins over anything the plugin registers, so the keymap UI is a true override (survives plugin reloads, plugin updates, and Logseq's "reset shortcuts" flow).
+
+**Built-in actions ship without a default chord** to avoid collisions with Logseq core or other plugins — pick your own.
+
+**User-defined actions can carry a `keybinding` in JSON.** Add an optional `keybinding` field to any entry in `userActionsJson` to set a portable default that travels with the action across graphs and exports:
+
+```json
+{
+  "id": "simplify",
+  "title": "Simplify",
+  "scope": "block",
+  "outputMode": "diff-panel",
+  "systemPrompt": "...",
+  "keybinding": "mod+shift+s"
+}
+```
+
+The `keybinding` field accepts two shapes (mirroring Logseq's `SimpleCommandKeybinding`):
+
+- **String** — a single chord, e.g. `"mod+shift+s"`. Logseq's `mod` is `ctrl` on Windows/Linux and `cmd` on macOS. Multi-step chords use a space, e.g. `"mod+shift+a g"`.
+- **Object** — `{ "binding": "mod+shift+s", "mode": "global", "mac": "cmd+shift+s" }`. Use this for mac-specific overrides or non-global modes (`"non-editing"`, `"editing"`). The Manage panel's `Keybinding` field only authors the string form; the object form lives in the `userActionsJson` textarea.
+
+The Manage Actions panel also exposes a `Keybinding (optional)` input on every action's detail editor. Whatever you type gets trimmed, lowercased (so `Mod+Shift+S` and `mod+shift+s` are equivalent — Logseq's chord parser is case-insensitive), and saved as the string form.
+
+**Reload caveat.** Logseq has no API to deregister a palette entry, so editing the `keybinding` on an action whose `id` already exists only takes effect on the **next plugin reload** (disable + re-enable in the plugin settings). Adding a new action with a `keybinding` picks the binding up immediately. This is the same caveat that applies to title and prompt edits.
+
+**Keymap UI override is the source of truth.** The plugin's `keybinding` is a default, not a lock — Logseq's keymap UI overrides it on a per-chord basis.
+
 ## Privacy & data egress
 
 - The plugin sends **exactly the scope of content the action is configured for** (selection / block / block + children) to the configured endpoint, nothing more.
