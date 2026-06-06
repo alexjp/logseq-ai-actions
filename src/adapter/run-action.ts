@@ -6,14 +6,17 @@ import { type AssetBlock, getAssetType, isImageAsset } from "../image-asset";
 import { countOutlineNodes, parseOutline, renderOutlinePreview } from "../parse-outline";
 import { parsePoints } from "../parse-points";
 import { parseTitles } from "../parse-titles";
-import { type LLMProvider, LLMProviderError } from "../provider";
+import type { LLMProvider } from "../provider";
 import type { ChoicePanelChoice } from "../ui/ChoicePanel";
 import { showChoice } from "../ui/show-choice";
 import { showConfirm } from "../ui/show-confirm";
 import { showDiffPanel } from "../ui/show-diff";
 import { loadImageAssetBytes } from "./image-loader";
+import { closeBusyToast, formatProviderError, performLLM } from "./llm-runner";
 import { insertOutlineTree, removeBlockChildren } from "./outline-writer";
-import { type ResolvedInput, resolveInput } from "./resolve-input";
+import { resolveInput } from "./resolve-input";
+import { runBatchedAction } from "./run-batched-action";
+import { runPerBlockAction } from "./run-per-block-action";
 import { type ResolvedSettings, readSettings } from "./settings";
 
 /**
@@ -57,6 +60,18 @@ export async function runAction(
     return;
   }
 
+  // Per-block and batched subtree scopes handle their own input
+  // resolution (the "input" is the whole subtree, not a ResolvedInput)
+  // and their own diff-panel rendering, so they branch off before the
+  // single-block `resolveInput` call below. Both feed the same
+  // multi-block diff panel — only the LLM call pattern differs.
+  if (action.scope === "subtree-per-block") {
+    return runPerBlockAction(action, ctx, settings, explicitBlockUuid);
+  }
+  if (action.scope === "subtree-batched") {
+    return runBatchedAction(action, ctx, settings, explicitBlockUuid);
+  }
+
   const input = await resolveInput(action, explicitBlockUuid);
   if (input.uuid === null) {
     logseq.UI.showMsg(input.reason, "warning");
@@ -90,7 +105,7 @@ export async function runAction(
       if (!s.model.trim()) {
         throw new Error("No model configured. Open plugin settings and set a model name.");
       }
-      const text = await performLLM(ctx.provider, a, inp, s, onChunk);
+      const text = await performLLM(ctx.provider, a, inp.llmInput, s, onChunk);
       return { finalText: text, actionTitle: a.title };
     };
 
@@ -118,7 +133,7 @@ export async function runAction(
     const msg = await logseq.UI.showMsg(`${action.title}…`, "info", { timeout: 0 });
     busyToastKey = (msg as unknown as string | number | null) ?? null;
 
-    const output = await performLLM(ctx.provider, action, input, settings);
+    const output = await performLLM(ctx.provider, action, input.llmInput, settings);
 
     closeBusyToast(busyToastKey);
     busyToastKey = null;
@@ -404,95 +419,4 @@ async function runVisionAction(
 function resolveVisionModel(settings: ResolvedSettings): string {
   const v = settings.visionModel.trim();
   return v.length > 0 ? v : settings.model.trim();
-}
-
-/**
- * Build the provider request body shared by both complete + stream.
- * Pulled out so the debug-log truncation in performLLM stays in sync
- * with the actual request.
- */
-function buildProviderRequest(action: Action, input: ResolvedInput, settings: ResolvedSettings) {
-  return {
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-    system: action.systemPrompt,
-    user: input.llmInput,
-    temperature: settings.temperature,
-    timeoutMs: settings.timeoutMs,
-    ...(settings.apiKey ? { apiKey: settings.apiKey } : {}),
-  };
-}
-
-function recordDebugEntry(
-  action: Action,
-  input: ResolvedInput,
-  settings: ResolvedSettings,
-  startedAt: number,
-  output: string | undefined,
-  error: string | undefined,
-): void {
-  if (!settings.debugLog) return;
-  debugLog.push({
-    timestamp: startedAt,
-    actionId: action.id,
-    actionTitle: action.title,
-    scope: action.scope,
-    outputMode: action.outputMode,
-    model: settings.model,
-    baseUrl: settings.baseUrl,
-    requestPreview: truncate(input.llmInput, PREVIEW_TRUNCATION_LIMIT),
-    durationMs: Date.now() - startedAt,
-    ...(output !== undefined
-      ? { responsePreview: truncate(output, PREVIEW_TRUNCATION_LIMIT) }
-      : {}),
-    ...(error !== undefined ? { error } : {}),
-  });
-}
-
-function formatProviderError(err: unknown): string {
-  if (err instanceof LLMProviderError) {
-    return `${err.message}${err.details?.status ? ` (HTTP ${err.details.status})` : ""}`;
-  }
-  return (err as Error).message;
-}
-
-/**
- * `logseq.UI.closeMsg` throws when the key is unknown (e.g., the toast
- * timed out on its own). Wrap once and swallow — every call site treated
- * the throw as ignorable.
- */
-function closeBusyToast(key: string | number | null): void {
-  if (key === null) return;
-  try {
-    logseq.UI.closeMsg(key as string);
-  } catch {
-    /* ignore — closeMsg throws on unknown key */
-  }
-}
-
-/**
- * Run a single LLM call (streaming when `onChunk` is provided, one-shot
- * otherwise) and record a debug-log entry. Shared by every text-action
- * path so the debug-log shape stays identical regardless of mode.
- */
-async function performLLM(
-  provider: LLMProvider,
-  action: Action,
-  input: ResolvedInput,
-  settings: ResolvedSettings,
-  onChunk?: (chunk: string) => void,
-): Promise<string> {
-  const startedAt = Date.now();
-  let output: string | undefined;
-  let error: string | undefined;
-  try {
-    const req = buildProviderRequest(action, input, settings);
-    output = onChunk ? await provider.stream(req, onChunk) : await provider.complete(req);
-    return output;
-  } catch (err) {
-    error = formatProviderError(err);
-    throw err;
-  } finally {
-    recordDebugEntry(action, input, settings, startedAt, output, error);
-  }
 }

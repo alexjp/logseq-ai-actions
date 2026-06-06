@@ -146,6 +146,53 @@ export function countOutlineNodes(nodes: readonly OutlineNode[]): number {
 }
 
 /**
+ * One node in a DFS-flattened outline. Mirrors the `SubtreeNode`
+ * shape from `subtree-walk.ts` (depth + text) so the batched runner
+ * can align an LLM response with the original subtree node-for-node.
+ * `index` is the node's position in the flat list (0-based), used
+ * to align with `walkSubtree` output — both walks emit parent-first
+ * DFS, so the indices correspond.
+ */
+export interface FlatOutlineNode {
+  readonly text: string;
+  readonly depth: number;
+  readonly index: number;
+}
+
+/**
+ * Walk an outline tree in DFS order (parent first, then children
+ * left-to-right), returning one `FlatOutlineNode` per node. The
+ * resulting array is aligned with `walkSubtree` output for the same
+ * source subtree — provided the LLM preserved the outline structure
+ * (no added/removed lines, depths unchanged). The batched action
+ * uses this alignment to compute per-block proposals; on count
+ * mismatch it falls back to the per-block runner.
+ */
+export function flattenOutlineTree(nodes: readonly OutlineNode[]): readonly FlatOutlineNode[] {
+  const out: FlatOutlineNode[] = [];
+  const stack: { node: OutlineNode; depth: number }[] = [];
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i];
+    if (!n) continue;
+    stack.push({ node: n, depth: 0 });
+  }
+  while (stack.length > 0) {
+    const frame = stack.pop();
+    if (!frame) break;
+    const { node, depth } = frame;
+    out.push({ text: node.text, depth, index: out.length });
+    // Push children in reverse so leftmost child pops first.
+    const kids = node.children;
+    for (let i = kids.length - 1; i >= 0; i--) {
+      const c = kids[i];
+      if (!c) continue;
+      stack.push({ node: c, depth: depth + 1 });
+    }
+  }
+  return out;
+}
+
+/**
  * Render an outline tree as an indented preview string for `ConfirmPanel`.
  * Two-space indent per depth, each line prefixed with `• `. Pure — takes
  * a tree, returns a string; no side effects. Empty tree → empty string.

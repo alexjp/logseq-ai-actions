@@ -45,7 +45,7 @@ export const ImportView: FunctionComponent<ImportViewProps> = ({ onCancel, onImp
           rows={14}
           value={text}
           onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
-          placeholder='[\n  {\n    "id": "action-items",\n    "title": "Action Items",\n    "scope": "subtree",\n    "outputMode": "append-children",\n    "systemPrompt": "Extract action items …"\n  }\n]'
+          placeholder='[\n  {\n    "id": "action-items",\n    "title": "Action Items",\n    "scope": "subtree",\n    "outputMode": "append-children",\n    "systemPrompt": "Extract action items …"\n  },\n  {\n    "id": "grammar-subtree",\n    "title": "Grammar (subtree)",\n    "scope": "subtree-per-block",\n    "outputMode": "diff-panel",\n    "systemPrompt": "Fix only objective grammar errors in the text …"\n  }\n]'
           spellcheck={false}
         />
       </Field>

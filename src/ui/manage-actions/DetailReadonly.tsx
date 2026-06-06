@@ -73,6 +73,8 @@ export const DetailReadonly: FunctionComponent<DetailReadonlyProps> = ({
               { value: "selection", label: "selection" },
               { value: "block", label: "block" },
               { value: "subtree", label: "subtree" },
+              { value: "subtree-per-block", label: "subtree (per block)" },
+              { value: "subtree-batched", label: "subtree (batched)" },
             ]}
           />
         </Field>

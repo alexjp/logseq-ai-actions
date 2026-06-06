@@ -105,6 +105,10 @@ export const SCOPE_HINTS: Readonly<Record<string, string>> = {
   block: "Text of the block under the cursor only. Most rewrites use this.",
   subtree:
     "The block plus all its descendants, flattened into a Markdown outline. Used for summarising or outlining accumulated content.",
+  "subtree-per-block":
+    "Run the action once per block in the subtree (parent + each descendant, in DFS order). Each block gets its own LLM call and its own diff card. Most reliable with small local models — recommended default for grammar / spellcheck / rewrite across a tree.",
+  "subtree-batched":
+    "Send the whole subtree to the model in a single call and ask for the same outline back. Faster, but the model may add or drop lines; on misalignment the runner silently falls back to subtree-per-block.",
 };
 
 export const OUTPUT_MODE_HINTS: Readonly<Record<string, string>> = {

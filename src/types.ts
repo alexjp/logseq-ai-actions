@@ -3,7 +3,12 @@
 // Logseq-runtime code alike.
 
 /** Where an action reads its input from. See REQUIREMENTS §4. */
-export type ActionScope = "selection" | "block" | "subtree";
+export type ActionScope =
+  | "selection"
+  | "block"
+  | "subtree"
+  | "subtree-per-block"
+  | "subtree-batched";
 
 /** How the LLM output is applied. See REQUIREMENTS §6. */
 export type OutputMode =

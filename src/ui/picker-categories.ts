@@ -39,9 +39,17 @@ const CATEGORY_LABELS: Record<PickerCategory, string> = {
  * as Rewrite, but `rewrite-snarky` will). User-defined actions follow
  * the same rules; the picker tags them with a `custom` pill at render
  * time so authorship stays legible.
+ *
+ * `subtree-per-block` and `subtree-batched` both fall into the
+ * "transform" bucket — they're text transformations of an entire
+ * subtree. The matcher keys off the scope value rather than the id,
+ * since user-defined actions may use any id (e.g., "grammar-subtree"
+ * starts with "grammar" and would otherwise land in "fix").
  */
-export function categorizeAction(action: Pick<Action, "id" | "kind">): PickerCategory {
+export function categorizeAction(action: Pick<Action, "id" | "kind" | "scope">): PickerCategory {
   if (action.kind === "vision") return "vision";
+  if (action.scope === "subtree-per-block" || action.scope === "subtree-batched")
+    return "transform";
   const id = action.id;
   if (matches(id, ["spellcheck", "grammar"])) return "fix";
   if (matches(id, ["rewrite"])) return "rewrite";

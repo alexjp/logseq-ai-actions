@@ -1,7 +1,13 @@
 import { z } from "zod";
 import type { ActionKind, ActionScope, OutputMode } from "./types";
 
-const SCOPES: readonly ActionScope[] = ["selection", "block", "subtree"];
+const SCOPES: readonly ActionScope[] = [
+  "selection",
+  "block",
+  "subtree",
+  "subtree-per-block",
+  "subtree-batched",
+];
 const OUTPUT_MODES: readonly OutputMode[] = [
   "replace",
   "diff-panel",
@@ -76,18 +82,39 @@ export function normalizeKeybinding(
  *
  * See REQUIREMENTS §4–§6 for scope/outputMode semantics, §17 for keybinding.
  */
-export const ActionSchema = z.object({
-  id: z.string().min(1, "id is required"),
-  title: z.string().min(1, "title is required"),
-  description: z.string().default(""),
-  scope: z.enum(SCOPES as [ActionScope, ...ActionScope[]]),
-  outputMode: z.enum(OUTPUT_MODES as [OutputMode, ...OutputMode[]]),
-  systemPrompt: z.string().min(1, "systemPrompt is required"),
-  // `kind` is optional with a default of "text" — every existing action
-  // and every existing user-defined action JSON literal stays valid.
-  kind: z.enum(KINDS as [ActionKind, ...ActionKind[]]).default("text"),
-  keybinding: KeybindingSchema.optional(),
-});
+export const ActionSchema = z
+  .object({
+    id: z.string().min(1, "id is required"),
+    title: z.string().min(1, "title is required"),
+    description: z.string().default(""),
+    scope: z.enum(SCOPES as [ActionScope, ...ActionScope[]]),
+    outputMode: z.enum(OUTPUT_MODES as [OutputMode, ...OutputMode[]]),
+    systemPrompt: z.string().min(1, "systemPrompt is required"),
+    // `kind` is optional with a default of "text" — every existing action
+    // and every existing user-defined action JSON literal stays valid.
+    kind: z.enum(KINDS as [ActionKind, ...ActionKind[]]).default("text"),
+    keybinding: KeybindingSchema.optional(),
+  })
+  .superRefine((action, ctx) => {
+    // `subtree-per-block` and `subtree-batched` both fan out the action
+    // across a node's subtree with one diff entry per block. The
+    // multi-block diff panel IS the only sensible apply path — other
+    // output modes (replace / append-children / outline-* / picker-*)
+    // either don't make sense per-block, or would still need a manual
+    // review UI we haven't built. Pin to `diff-panel` at parse time so
+    // user-defined JSON surfaces the constraint immediately rather than
+    // silently misbehaving at runtime.
+    if (
+      (action.scope === "subtree-per-block" || action.scope === "subtree-batched") &&
+      action.outputMode !== "diff-panel"
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputMode"],
+        message: `scope '${action.scope}' requires outputMode 'diff-panel' (got '${action.outputMode}')`,
+      });
+    }
+  });
 
 export type Action = z.infer<typeof ActionSchema>;
 

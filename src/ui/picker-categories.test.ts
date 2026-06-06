@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { Action } from "../action";
 import { categorizeAction, groupActionsForPicker, type TaggedAction } from "./picker-categories";
 
-const a = (id: string, kind: "text" | "vision" = "text") => ({ id, kind });
+const a = (id: string, kind: "text" | "vision" = "text", scope: "block" = "block") => ({
+  id,
+  kind,
+  scope,
+});
 
 /** Build a tagged Action stub with sensible defaults; tests override what they care about. */
 const tagged = (overrides: Partial<Action> & { id: string; isBuiltin: boolean }): TaggedAction => ({

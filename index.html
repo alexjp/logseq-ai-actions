@@ -325,6 +325,160 @@
         cursor: not-allowed;
       }
 
+      /* Multi-block diff panel — reuses .diff-root / .diff-modal /
+         .diff-header / .diff-footer / .diff-btn and adds a card list
+         for the per-block view. Used by the subtree-per-block and
+         subtree-batched scopes. */
+      .multi-root {
+        width: min(900px, 95vw);
+        margin: 48px 16px;
+      }
+      .multi-streaming-bar {
+        padding: 8px 20px;
+        background: var(--hover);
+        border-bottom: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.88em;
+        font-style: italic;
+      }
+      .multi-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      .multi-card {
+        border-bottom: 1px solid var(--border);
+        padding: 12px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: var(--bg);
+        transition: background 120ms ease;
+      }
+      .multi-card-accepted {
+        background: color-mix(in oklab, var(--success) 6%, var(--bg));
+      }
+      .multi-card-rejected {
+        opacity: 0.5;
+        background: color-mix(in oklab, var(--danger) 4%, var(--bg));
+      }
+      .multi-card-depth-0 { padding-left: 20px; }
+      .multi-card-depth-1 { padding-left: 36px; }
+      .multi-card-depth-2 { padding-left: 52px; }
+      .multi-card-depth-3 { padding-left: 68px; }
+      .multi-card-depth-4 { padding-left: 84px; }
+      .multi-card-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .multi-card-label {
+        font-size: 0.85em;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .multi-card-actions {
+        margin-left: auto;
+        display: inline-flex;
+        gap: 4px;
+      }
+      .multi-icon-btn {
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--fg);
+        font: inherit;
+        font-size: 0.95em;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .multi-icon-btn:hover:not(:disabled) {
+        background: var(--hover);
+      }
+      .multi-icon-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+      .multi-icon-accept {
+        color: var(--success);
+      }
+      .multi-icon-reject {
+        color: var(--danger);
+      }
+      .multi-icon-edit {
+        color: var(--accent);
+      }
+      .multi-status {
+        font-size: 0.78em;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--hover);
+        color: var(--muted);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+      .multi-status-streaming {
+        background: var(--accent);
+        color: #fff;
+        animation: multi-pulse 1.2s ease-in-out infinite;
+      }
+      .multi-status-empty {
+        background: color-mix(in oklab, var(--danger) 18%, transparent);
+        color: var(--danger);
+      }
+      .multi-status-accepted {
+        background: color-mix(in oklab, var(--success) 22%, transparent);
+        color: var(--success);
+      }
+      .multi-status-rejected {
+        background: color-mix(in oklab, var(--danger) 14%, transparent);
+        color: var(--danger);
+      }
+      .multi-status-edited {
+        background: color-mix(in oklab, var(--accent) 22%, transparent);
+        color: var(--accent);
+      }
+      .multi-card-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .multi-card-original h4,
+      .multi-card-proposed h4 {
+        margin: 0 0 4px 0;
+        font-size: 0.72em;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .multi-empty-note,
+      .multi-streaming-note {
+        color: var(--muted);
+        font-style: italic;
+      }
+      .multi-counts {
+        font-size: 0.85em;
+        color: var(--muted);
+        margin-right: auto;
+      }
+      .multi-spacer {
+        flex: 1;
+      }
+      @keyframes multi-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.55; }
+      }
+
       /* Diagnostics panel — reuses .diff-root / .diff-modal / .diff-header /
          .diff-footer and adds its own body + entry styles. */
       .diag-body {
