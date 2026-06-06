@@ -314,12 +314,20 @@ export const MultiBlockDiffPanel: FunctionComponent<MultiBlockDiffPanelProps> = 
   // for the per-card actions. The bulk-accept shortcut is gated on
   // `changedPendingCount > 0` indirectly (the handler just calls
   // `handleAcceptAllChanged`, which is a no-op when nothing matches).
+  //
+  // Cross-platform: the hint shows the Mac `⌘` glyph but the matcher
+  // accepts either `metaKey` (Mac) or `ctrlKey` (Linux/Windows) — same
+  // convention as the Enter handler four lines below and every other
+  // panel in this codebase. The bulk-accept key is matched by physical
+  // position (`e.code === "KeyA"`) rather than the produced character,
+  // so non-QWERTY layouts (Dvorak, Cyrillic, AZERTY) still trigger on
+  // Shift+the-A-key.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
         handleCancel();
-      } else if ((e.key === "A" || e.key === "a") && e.metaKey && e.shiftKey) {
+      } else if (e.code === "KeyA" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         handleAcceptAllChanged();
       } else if ((e.key === "Enter" && (e.metaKey || e.ctrlKey)) || e.key === "Return") {

@@ -10,6 +10,8 @@
 
   Implemented via a new `streamFetchImpl` option on `createOpenAIProvider`'s `ProviderOptions`; the Logseq adapter deliberately omits it so streaming always falls through to `globalThis.fetch`. Both fetchers are bound to `globalThis` at construction time so the call site in `postChat` — which invokes the fetcher as a property of a plain `PostChatOptions` object — preserves the Window receiver the native `fetch` requires; without this, streaming would throw `TypeError: Illegal invocation` in the plugin iframe.
 
+- The multi-block diff panel's `⌘⇧A` bulk-accept shortcut now works on Linux/Windows. The matcher previously checked `e.metaKey` (Mac-only) so `Ctrl+Shift+A` on Linux/Windows never triggered the handler. Now checks `(e.metaKey || e.ctrlKey)` (matching the convention used by every other panel's `⌘↵` handler) and uses the layout-independent `e.code === "KeyA"` so non-QWERTY layouts (Dvorak, Cyrillic, AZERTY) also work.
+
 ## 1.3.2
 
 ### Patch Changes
