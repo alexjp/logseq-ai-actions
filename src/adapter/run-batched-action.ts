@@ -3,7 +3,7 @@ import type { Action } from "../action";
 import { flattenOutlineTree, parseOutline } from "../parse-outline";
 import type { LLMProvider } from "../provider";
 import { flattenSubtree } from "../subtree";
-import { type SubtreeBlockInput, walkSubtree } from "../subtree-walk";
+import { type SubtreeBlockInput, type SubtreeNode, walkSubtree } from "../subtree-walk";
 import type { MultiBlockPanelBlock } from "../ui/MultiBlockDiffPanel";
 import { showMultiBlockDiff } from "../ui/show-multi-block-diff";
 import { performLLM } from "./llm-runner";
@@ -111,28 +111,19 @@ export async function runBatchedAction(
     return;
   }
 
-  const parsed = parseOutline(output);
-  const flatParsed = flattenOutlineTree(parsed);
+  const alignment = alignBatchedResponse(walked.nodes, output);
 
-  if (flatParsed.length !== walked.nodes.length) {
+  if (alignment.status === "misaligned") {
+    const observed = alignment.observed;
+    const expected = alignment.expected;
     logseq.UI.showMsg(
-      `${action.title}: batched response didn't align with the subtree (${flatParsed.length} line${flatParsed.length === 1 ? "" : "s"} vs ${walked.nodes.length} block${walked.nodes.length === 1 ? "" : "s"}) — falling back to per-block.`,
+      `${action.title}: batched response didn't align with the subtree (${observed} line${observed === 1 ? "" : "s"} vs ${expected} block${expected === 1 ? "" : "s"}) — falling back to per-block.`,
       "info",
     );
     return runPerBlockAction(action, ctx, settings, explicitBlockUuid);
   }
 
-  // Build a uuid → proposed text lookup. The panel calls
-  // `runOneBlock(uuid, onChunk)` per block; here we just emit the
-  // pre-computed text as a single chunk so the panel can show a
-  // "streamed" diff (the diff is computed when streamingIndex
-  // reaches the end, which is instant for the batched path).
-  const proposedByUuid = new Map<string, string>();
-  for (let i = 0; i < walked.nodes.length; i++) {
-    const node = walked.nodes[i];
-    const parsedNode = flatParsed[i];
-    if (node && parsedNode) proposedByUuid.set(node.uuid, parsedNode.text);
-  }
+  const proposedByUuid = alignment.proposals;
 
   const panelBlocks: MultiBlockPanelBlock[] = walked.nodes.map((n) => ({
     uuid: n.uuid,
@@ -176,4 +167,45 @@ async function resolveParentBlock(explicitBlockUuid: string | undefined): Promis
   }
   const current = await logseq.Editor.getCurrentBlock();
   return current?.uuid ?? null;
+}
+
+/**
+ * Pure helper: align a single LLM response (assumed to be a full
+ * flattened outline) with a `walkSubtree` result, returning a
+ * uuid → proposed-text map. Extracted from `runBatchedAction` so the
+ * alignment logic is testable without the SDK.
+ *
+ * The two walks (the subtree walk that produced `walked` and the
+ * LLM's response, parsed by `parseOutline` and flattened) are both
+ * parent-first DFS, so index N in the response corresponds to the
+ * node at walked[N]. If the counts diverge (the model added, dropped,
+ * or merged lines), the result is `misaligned` and the runner falls
+ * back to per-block.
+ */
+export type BatchedAlignment =
+  | { readonly status: "aligned"; readonly proposals: ReadonlyMap<string, string> }
+  | { readonly status: "misaligned"; readonly observed: number; readonly expected: number };
+
+export function alignBatchedResponse(
+  walked: readonly SubtreeNode[],
+  llmOutput: string,
+): BatchedAlignment {
+  const parsed = parseOutline(llmOutput);
+  const flatParsed = flattenOutlineTree(parsed);
+
+  if (flatParsed.length !== walked.length) {
+    return {
+      status: "misaligned",
+      observed: flatParsed.length,
+      expected: walked.length,
+    };
+  }
+
+  const proposals = new Map<string, string>();
+  for (let i = 0; i < walked.length; i++) {
+    const node = walked[i];
+    const parsedNode = flatParsed[i];
+    if (node && parsedNode) proposals.set(node.uuid, parsedNode.text);
+  }
+  return { status: "aligned", proposals };
 }

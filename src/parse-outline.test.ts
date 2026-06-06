@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { countOutlineNodes, parseOutline, renderOutlinePreview } from "./parse-outline";
+import {
+  countOutlineNodes,
+  flattenOutlineTree,
+  parseOutline,
+  renderOutlinePreview,
+} from "./parse-outline";
 
 describe("parseOutline", () => {
   it("parses a flat list of top-level bullets", () => {
@@ -253,5 +258,65 @@ describe("renderOutlinePreview", () => {
 
   it("returns empty string for empty tree", () => {
     expect(renderOutlinePreview([])).toBe("");
+  });
+});
+
+describe("flattenOutlineTree", () => {
+  it("returns an empty array for an empty tree", () => {
+    expect(flattenOutlineTree([])).toEqual([]);
+  });
+
+  it("flattens a single-node tree", () => {
+    const flat = flattenOutlineTree([{ text: "Solo", children: [] }]);
+    expect(flat).toEqual([{ text: "Solo", depth: 0, index: 0 }]);
+  });
+
+  it("emits nodes in DFS pre-order (parent before children)", () => {
+    const tree = parseOutline(["- Parent", "  - Child A", "  - Child B"].join("\n"));
+    const flat = flattenOutlineTree(tree);
+    expect(flat).toEqual([
+      { text: "Parent", depth: 0, index: 0 },
+      { text: "Child A", depth: 1, index: 1 },
+      { text: "Child B", depth: 1, index: 2 },
+    ]);
+  });
+
+  it("walks children left-to-right across multiple depths", () => {
+    const tree = parseOutline(
+      ["- Top", "  - Mid A", "    - Leaf 1", "    - Leaf 2", "  - Mid B", "- Sibling"].join("\n"),
+    );
+    const flat = flattenOutlineTree(tree);
+    expect(flat.map((n) => n.text)).toEqual([
+      "Top",
+      "Mid A",
+      "Leaf 1",
+      "Leaf 2",
+      "Mid B",
+      "Sibling",
+    ]);
+    expect(flat.map((n) => n.depth)).toEqual([0, 1, 2, 2, 1, 0]);
+    // Indices are 0-based and contiguous — the batched runner uses
+    // them to align with `walkSubtree` output, which is also a
+    // contiguous flat list.
+    expect(flat.map((n) => n.index)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it("emits the same number of nodes as the input tree contains", () => {
+    const tree = parseOutline(
+      ["- A", "  - B", "    - C", "      - D", "  - E", "- F", "  - G", "  - H"].join("\n"),
+    );
+    const flat = flattenOutlineTree(tree);
+    expect(flat.length).toBe(countOutlineNodes(tree));
+  });
+
+  it("handles a tree where every node is a leaf", () => {
+    const tree = parseOutline("- A\n- B\n- C\n- D");
+    const flat = flattenOutlineTree(tree);
+    expect(flat).toEqual([
+      { text: "A", depth: 0, index: 0 },
+      { text: "B", depth: 0, index: 1 },
+      { text: "C", depth: 0, index: 2 },
+      { text: "D", depth: 0, index: 3 },
+    ]);
   });
 });

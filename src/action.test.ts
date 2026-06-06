@@ -50,8 +50,80 @@ describe("ActionSchema", () => {
     expect(() => ActionSchema.parse({ ...minimalAction, outputMode: "inline" })).toThrow();
   });
 
-  it.each(["selection", "block", "subtree"] as const)("accepts scope=%s", (scope) => {
-    expect(() => ActionSchema.parse({ ...minimalAction, scope })).not.toThrow();
+  it.each([
+    "selection",
+    "block",
+    "subtree",
+    "subtree-per-block",
+    "subtree-batched",
+  ] as const)("accepts scope=%s", (scope) => {
+    expect(() =>
+      ActionSchema.parse({ ...minimalAction, scope, outputMode: "diff-panel" }),
+    ).not.toThrow();
+  });
+
+  // `subtree-per-block` and `subtree-batched` are pinned to `diff-panel`
+  // by the schema's superRefine. The runtime has no other apply path for
+  // them, so the constraint surfaces at parse time rather than silently
+  // misbehaving later.
+  it.each([
+    "replace",
+    "append-children",
+    "outline-replace",
+    "outline-append",
+    "picker-replace",
+  ] as const)("rejects subtree-per-block with outputMode=%s (requires diff-panel)", (outputMode) => {
+    const result = ActionSchema.safeParse({
+      ...minimalAction,
+      scope: "subtree-per-block",
+      outputMode,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path[0] === "outputMode");
+      expect(issue?.message).toContain("diff-panel");
+    }
+  });
+
+  it.each([
+    "replace",
+    "append-children",
+    "outline-replace",
+    "outline-append",
+    "picker-replace",
+  ] as const)("rejects subtree-batched with outputMode=%s (requires diff-panel)", (outputMode) => {
+    const result = ActionSchema.safeParse({
+      ...minimalAction,
+      scope: "subtree-batched",
+      outputMode,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path[0] === "outputMode");
+      expect(issue?.message).toContain("diff-panel");
+    }
+  });
+
+  it("accepts subtree-per-block with outputMode=diff-panel", () => {
+    expect(() =>
+      ActionSchema.parse({
+        ...minimalAction,
+        scope: "subtree-per-block",
+        outputMode: "diff-panel",
+      }),
+    ).not.toThrow();
+  });
+
+  it("accepts subtree-batched with outputMode=diff-panel", () => {
+    expect(() =>
+      ActionSchema.parse({ ...minimalAction, scope: "subtree-batched", outputMode: "diff-panel" }),
+    ).not.toThrow();
+  });
+
+  it("leaves the existing subtree + diff-panel combo (used by summarize) untouched", () => {
+    expect(() =>
+      ActionSchema.parse({ ...minimalAction, scope: "subtree", outputMode: "diff-panel" }),
+    ).not.toThrow();
   });
 
   it.each([
