@@ -111,6 +111,9 @@ const SETTINGS_SCHEMA: SettingDesc[] = [
   },
 ];
 
+// Streaming deliberately bypasses the SDK shim — `logseq.Request._request`
+// JSON-parses the response body and crashes on SSE. The streaming fetcher
+// is left unset, so it defaults to `globalThis.fetch` (see ProviderOptions).
 const provider = createOpenAIProvider({ fetchImpl: logseqFetch });
 
 /**

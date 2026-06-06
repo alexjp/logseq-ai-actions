@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.3
+
+### Patch Changes
+
+- The provider's streaming path now uses `globalThis.fetch` directly, bypassing `logseq.Request._request` which JSON-parses the response body and crashes on SSE (`text/event-stream`, body starting with `data: {…`). The non-streaming `complete` / `completeVision` paths are unchanged and still use the SDK shim for CORS-bypass on Logseq Web.
+
+  Removes a per-block `console.warn` ("logseq.Request failed, falling back to fetch") that fired once per streaming LLM call in the multi-block diff panel.
+
+  Implemented via a new `streamFetchImpl` option on `createOpenAIProvider`'s `ProviderOptions`; the Logseq adapter deliberately omits it so streaming always falls through to `globalThis.fetch`. Both fetchers are bound to `globalThis` at construction time so the call site in `postChat` — which invokes the fetcher as a property of a plain `PostChatOptions` object — preserves the Window receiver the native `fetch` requires; without this, streaming would throw `TypeError: Illegal invocation` in the plugin iframe.
+
 ## 1.3.2
 
 ### Patch Changes

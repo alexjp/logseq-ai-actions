@@ -205,6 +205,72 @@ describe("createOpenAIProvider", () => {
         createOpenAIProvider().stream({ ...baseReq, timeoutMs: 10 }, () => {}),
       ).rejects.toThrow(/timed out/i);
     });
+
+    it("ignores the non-streaming fetchImpl and uses globalThis.fetch (SDK shim is SSE-incompatible)", async () => {
+      const nonStreamImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({ choices: [{ message: { content: "should not be used" } }] }),
+        );
+      fetchMock.mockResolvedValueOnce(
+        streamingResponse([sseEvent("Hello"), sseEvent(" world"), "data: [DONE]\n\n"]),
+      );
+
+      const chunks: string[] = [];
+      const result = await createOpenAIProvider({ fetchImpl: nonStreamImpl }).stream(baseReq, (c) =>
+        chunks.push(c),
+      );
+
+      expect(result).toBe("Hello world");
+      expect(chunks).toEqual(["Hello", " world"]);
+      expect(nonStreamImpl).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it("uses the injected streamFetchImpl when provided, bypassing globalThis.fetch", async () => {
+      const streamImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          streamingResponse([sseEvent("via"), sseEvent(" injected"), "data: [DONE]\n\n"]),
+        );
+
+      const chunks: string[] = [];
+      const result = await createOpenAIProvider({ streamFetchImpl: streamImpl }).stream(
+        baseReq,
+        (c) => chunks.push(c),
+      );
+
+      expect(result).toBe("via injected");
+      expect(chunks).toEqual(["via", " injected"]);
+      expect(streamImpl).toHaveBeenCalledOnce();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("binds the default streaming fetcher to globalThis (Illegal-invocation regression)", async () => {
+      // The native `fetch` requires `this === Window` (== globalThis).
+      // `postChat` invokes the fetcher as a property of a plain object
+      // (`opts.fetchFn(url, init)`), so without binding at construction
+      // time the call would throw `TypeError: Illegal invocation` in
+      // the plugin iframe. A strict mock that enforces the receiver
+      // contract catches this regression; the default `vi.fn()` mock
+      // is receiver-agnostic and would silently pass.
+      const strictFetch = vi.fn(function (this: unknown) {
+        if (this !== globalThis) {
+          throw new TypeError(
+            "Illegal invocation: fetch must be called with globalThis as receiver",
+          );
+        }
+        return streamingResponse([sseEvent("bound"), "data: [DONE]\n\n"]);
+      });
+      vi.stubGlobal("fetch", strictFetch);
+      try {
+        const result = await createOpenAIProvider().stream(baseReq, () => {});
+        expect(result).toBe("bound");
+        expect(strictFetch).toHaveBeenCalledOnce();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 
   it("throws a timeout error when the abort signal fires", async () => {

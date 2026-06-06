@@ -46,6 +46,11 @@ export interface LLMProvider {
    * Streaming: POST with `stream: true`, invoke `onChunk` for each
    * delta as it arrives, resolve with the trimmed accumulated text
    * when the stream ends.
+   *
+   * Uses the provider's `streamFetchImpl` (defaults to `globalThis.fetch`).
+   * The Logseq adapter deliberately does NOT route streaming through
+   * `logseq.Request._request` because that helper JSON-parses the response
+   * body and crashes on SSE — see `ProviderOptions`.
    */
   stream(req: CompleteRequest, onChunk: (delta: string) => void): Promise<string>;
   /**
@@ -58,13 +63,21 @@ export interface LLMProvider {
 }
 
 /**
- * Options for `createOpenAIProvider`. The only knob today is `fetchImpl`,
- * which lets the Logseq adapter inject a CORS-free transport based on
- * `logseq.Request._request` for desktop Electron users. When omitted,
- * the provider uses `globalThis.fetch`.
+ * Options for `createOpenAIProvider`.
+ *
+ * - `fetchImpl` is the non-streaming transport. The Logseq adapter injects
+ *   `logseqFetch` here so desktop users can hit `http://localhost:*` LLMs
+ *   without CORS. When omitted, the provider uses `globalThis.fetch`.
+ * - `streamFetchImpl` is the streaming transport. It defaults to
+ *   `globalThis.fetch` and should NOT be set to the Logseq SDK shim:
+ *   `logseq.Request._request` JSON-parses the response body and crashes
+ *   on SSE (`text/event-stream`, body starting with `data: {…`). The
+ *   Logseq adapter deliberately omits this option so streaming always
+ *   goes through `globalThis.fetch`, bypassing the SDK shim entirely.
  */
 export interface ProviderOptions {
   readonly fetchImpl?: typeof globalThis.fetch;
+  readonly streamFetchImpl?: typeof globalThis.fetch;
 }
 
 /**
@@ -93,10 +106,21 @@ export class LLMProviderError extends Error {
 }
 
 export function createOpenAIProvider(options: ProviderOptions = {}): LLMProvider {
-  const fetchFn = options.fetchImpl ?? globalThis.fetch;
+  // Bind the fetchers to `globalThis` so the call site in `postChat` —
+  // which invokes the fetcher as a property of `PostChatOptions` (a
+  // plain object) — preserves the Window receiver that the native
+  // `fetch` requires. Without this, streaming calls throw
+  // `TypeError: Illegal invocation` in the Logseq plugin iframe.
+  // (The test mock `vi.fn()` is receiver-agnostic, so a regression
+  // here isn't caught by the default tests — a strict-mock test
+  // enforces the receiver contract.)
+  // Binding is a no-op for the Logseq SDK shim (`logseqFetch` doesn't
+  // read `this`), so it is safe for both injected and default fetchers.
+  const fetchFn = (options.fetchImpl ?? globalThis.fetch).bind(globalThis);
+  const streamFetchFn = (options.streamFetchImpl ?? globalThis.fetch).bind(globalThis);
   return {
     complete: (req) => openAIComplete(req, fetchFn),
-    stream: (req, onChunk) => openAIStream(req, onChunk, fetchFn),
+    stream: (req, onChunk) => openAIStream(req, onChunk, streamFetchFn),
     completeVision: (req) => openAIVisionComplete(req, fetchFn),
   };
 }
