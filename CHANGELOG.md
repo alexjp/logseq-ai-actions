@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+### Minor Changes
+
+- Per-block diff across subtree: two new `ActionScope` values — `subtree-per-block` (one LLM call per block, sequential, streams into the panel) and `subtree-batched` (one LLM call returning the whole transformed outline, auto-falls-back to `subtree-per-block` on count mismatch). Both feed a new multi-block diff panel that renders one card per non-empty block in DFS order with per-card Accept / Reject / Edit (edit-implies-accept) and an `Apply N` footer; empty blocks are never written, and an empty / failed LLM response disables Accept with an inline "model returned empty" note. Authoring surface: `Manage Actions` scope dropdown picks `subtree (per block)` or `subtree (batched)`, the `userActionsJson` placeholder now includes a `grammar-subtree` example, and the toolbar picker routes both new scopes into the Transform bucket before the id-prefix check. Both scopes are pinned to `outputMode: "diff-panel"` by a Zod `.superRefine` (the schema rejects any other output mode with a `path: ["outputMode"]` issue). Subtree size policy: soft warning at 20 blocks, hard cap at 50 (enforced before the first LLM call fires; empty / whitespace-only blocks filtered out by the walker). Pure contracts: `walkSubtree` (14 new cases), `flattenOutlineTree` (6 new cases), `alignBatchedResponse` (10 new cases). See `REQUIREMENTS.md` §18 for the full panel contract, edit semantics, alignment rule, and out-of-scope items.
+
 ## 1.2.0
 
 ### Minor Changes

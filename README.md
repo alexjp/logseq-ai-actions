@@ -23,6 +23,7 @@ Knowledge-graph notes deserve thoughtful AI assistance — but not at the cost o
   - `summarize` — TL;DR of a block and its descendants; written into the parent, children preserved.
   - `key-points` — extract bullet-list points; appended as new children under the block.
   - `outline-replace` / `outline-append` — generate a nested outline of a subtree. Replace destroys existing children; Append preserves them. Markdown tables in the LLM output are kept as standalone blocks.
+- **Per-block diff across subtree** — define any text action with `scope: "subtree-per-block"` (or `subtree-batched`) and `outputMode: "diff-panel"` to run the action once per block in the subtree with a multi-block diff panel. Children are not replaced; each block's text is updated in place. See [§ Per-block diff across subtree](#per-block-diff-across-subtree) below.
 - **Vision seed actions** (run on image asset blocks — blocks tagged `:logseq.class/Asset`):
   - `image-title` — analyze the image and propose three candidate titles in a picker; chosen value writes to `:block/title`.
   - `extract-image-text` — OCR the image and append the extracted text as nested children. Well-formed tables in the source render as standalone markdown-table blocks.
@@ -61,6 +62,40 @@ The plugin iframe runs at a different origin from your LLM server, so the browse
 | **Custom** | Add `Access-Control-Allow-Origin: *` (or your Logseq + plugin origin) to your server's response headers. Don't forget the `OPTIONS` preflight. |
 
 Allowing `*` is a reasonable default for a server that's already bound to `localhost` — no extra risk beyond what loopback binding already implies.
+
+### Per-block diff across subtree
+
+The plugin ships two scopes that fan an action out across a node and its descendants with a multi-block diff panel:
+
+| Scope | Execution | Use when |
+|---|---|---|
+| `subtree-per-block` | ONE LLM call per non-empty block (sequential, streams into the panel) | Small or unreliable local models. **Recommended default.** |
+| `subtree-batched` | ONE LLM call returning the whole transformed outline | Fast local models with reliable structured output. Auto-falls-back to `subtree-per-block` on count mismatch. |
+
+Both require `outputMode: "diff-panel"` (pinned by the schema) and apply accepted blocks via `logseq.Editor.updateBlock` — children are never replaced or restructured. The diff panel renders one card per non-empty block in DFS order, with a unified-diff preview once streaming finishes, per-card `Accept` / `Reject` / `Edit` buttons (edit-implies-accept), and an `Apply N` footer that writes only the accepted or edited blocks.
+
+**Size policy.** Soft warning at 20 blocks, hard cap at 50 (enforced before the first LLM call fires). Empty / whitespace-only blocks are filtered out by the walker.
+
+**Empty response.** If a per-block LLM call returns `""`, the card flips to `empty` and the Accept button is disabled (writing an empty block is destructive) — use `Reject` or `Edit` to provide a value. The card's error message is shown inline.
+
+**Example: roll-your-own per-block grammar.** Drop this into your `userActionsJson` setting:
+
+```json
+{
+  "id": "grammar-subtree",
+  "title": "Grammar (per block, subtree)",
+  "kind": "text",
+  "scope": "subtree-per-block",
+  "outputMode": "diff-panel",
+  "systemPrompt": "Fix objective grammatical errors. Preserve markdown, wikilinks, tags, code, proper nouns, and bullet-style fragments. Return the corrected text only."
+}
+```
+
+Or use **Manage Actions → + New action** and pick `subtree (per block)` (or `subtree (batched)`) from the scope dropdown.
+
+The two scopes are deliberately shipped as building blocks, not opinions — there is no built-in `grammar-subtree` seed action. Revisit this only if user feedback shows the absence is a discoverability problem.
+
+See [`REQUIREMENTS.md §18`](./REQUIREMENTS.md#18-per-block-diff-across-subtree) for the full contract (panel layout, edit semantics, alignment rule, out-of-scope items).
 
 ### 2. Install this plugin
 

@@ -1,6 +1,6 @@
 # `logseq-ai-actions` — Requirements (v1)
 
-Status: **Signed off 2026-04-23. Seed set and output-mode taxonomy extended 2026-04-25** (4 tone-rewrite variants, 2 outline modes + actions, vision support with `kind` field + `picker-replace` mode + 2 vision actions). Changes to this document must land via a PR and be reflected in `CHANGELOG.md`.
+Status: **Signed off 2026-04-23. Seed set and output-mode taxonomy extended 2026-04-25** (4 tone-rewrite variants, 2 outline modes + actions, vision support with `kind` field + `picker-replace` mode + 2 vision actions). **Per-block diff across subtree added 2026-06-06** — two new scopes (`subtree-per-block`, `subtree-batched`), new multi-block diff panel, new §18. Changes to this document must land via a PR and be reflected in `CHANGELOG.md`.
 
 ## 1. Purpose
 
@@ -71,8 +71,12 @@ Manage Actions remains the surface where users browse full descriptions and edit
 - `selection` (highlighted text in a block)
 - `block` (current block)
 - `subtree` (block + descendants, flattened with indent markers)
+- `subtree-per-block` (block + descendants, ONE LLM call per non-empty block, per-block diff)
+- `subtree-batched` (block + descendants, ONE LLM call returning the whole outline back, per-block diff; auto-falls-back to `subtree-per-block` on alignment failure)
 - **Not in v1:** whole-page, multi-select.
 - **Fixed per-action defaults.** No per-invocation override in v1.
+- **`subtree-per-block` and `subtree-batched` are restricted to `outputMode: "diff-panel"`** — both fan the action out into a multi-block diff panel; other output modes don't have a per-block apply path. Pinned by a Zod `.superRefine` so user-defined JSON surfaces the constraint at parse time rather than silently misbehaving at runtime.
+- See §18 for the full per-block diff panel contract (UX, size caps, fallback rule, edit semantics).
 
 ## 5. Seed actions
 
@@ -366,3 +370,70 @@ Fix: pass the `key` BARE — the action id alone, with no plugin prefix. The hos
 - Default keybindings on seed actions (decision locked above; revisit only if user feedback shows the empty default is a real friction point).
 - Per-graph keybinding overrides — Logseq's keymap UI is global; plugin-side `keybinding` defaults are global by virtue of riding on `registerCommandPalette`. A graph-scoped override layer is not on the v1 roadmap.
 - A keybinding-capture widget in the Manage panel (e.g. "press your chord to set"). The plain text input is shippable; a capture widget can come later if users hit syntax-friction.
+
+## 18. Per-block diff across subtree
+
+### Motivation
+
+Knowledge-graph blocks are usually small and live inside a tree. The existing `subtree` scope flattens the whole tree into a single LLM call (great for summarise / outline-replace / outline-append) but applies the result to a SINGLE block — the parent. Running grammar / spellcheck / rewrite on every block in a subtree currently means clicking into each child and re-running the action N times. The two new scopes fix that.
+
+### Two scopes, one panel, two execution paths
+
+| Scope | LLM call pattern | Best for |
+|---|---|---|
+| `subtree-per-block` | ONE LLM call per non-empty block (sequential, streams into the panel) | Small local models; reliable across block sizes. **Recommended default.** |
+| `subtree-batched` | ONE LLM call returning the whole transformed outline | Fast local models with reliable structured output. Auto-falls-back to `subtree-per-block` on count mismatch. |
+
+Both feed the same multi-block diff panel (next subsection) and apply per-block via `logseq.Editor.updateBlock` — children are never replaced or restructured.
+
+### Multi-block diff panel
+
+- Header: action title + `LocalRemoteBadge` + `Esc cancel · ⌘↵ apply` hint.
+- Streaming bar: `Streaming 3 of 8…` while in progress; absent once all blocks have streamed.
+- Body: scrollable list of `BlockCard`s, one per non-empty block in the subtree, in DFS order. Each card has:
+  - Depth indent (CSS class `multi-card-depth-0` … `multi-card-depth-4`, capped at 4 visually).
+  - A `Parent` / `Child ▾` label.
+  - A status pill: `pending` / `streaming` / `accepted` / `rejected` / `edited` / `empty`.
+  - Two columns: `Original` (plain) and `Proposed` (or `Edit` textarea when in edit mode).
+  - Per-card buttons: `✓ Accept` / `✗ Reject` / `✎ Edit` (the Accept button is disabled while the card is `streaming` or `empty`).
+  - When the streaming pass is finished, the `Proposed` column renders a unified diff (red strikethrough for removed, green highlight for added) via the existing `computeDiff` helper.
+- Footer: count summary (`N accepted · N rejected · N empty · N pending · N streaming`) + `Cancel` + `Reject remaining` (marks all still-pending/streaming cards as `rejected`) + `Apply N` (writes only the accepted/edited cards, sequentially).
+- Sequential streaming: the panel drives `runOneBlock(uuid, onChunk)` one block at a time, auto-advancing as each LLM call completes. A stale-chunk guard via a `useRef`-held generation counter drops chunks from prior in-flight calls if the user clicks `Cancel` or `Reject remaining` mid-stream.
+- Keyboard: `Esc` cancels (discards pending), `⌘↵` / `Ctrl↵` applies the accepted set (disabled while streaming).
+
+### Edit-implies-accept
+
+Editing a card's proposed text and clicking `Save` flips the card's status to `edited` and locks the edited text as the apply value. `Apply N` includes edited cards in the count without requiring a separate Accept click. The user can still `Cancel edit` to revert.
+
+### Empty-response handling
+
+If `runOneBlock` returns an empty string (model returned nothing useful) or throws, the card flips to `empty` with an inline "Model returned an empty response" note and the error message (if any). The Accept button stays disabled for empty cards (writing an empty text is destructive) — the user must either Reject or use Edit to provide their own text. Empty cards are NOT included in the `Apply N` count.
+
+### Subtree size policy
+
+- **Soft warning at 20 blocks** — runner shows an info toast ("this will take a while"), user can proceed.
+- **Hard cap at 50 blocks** — runner shows a warning toast and aborts. The cap is enforced by `walkSubtree` BEFORE the first LLM call fires, so the user is never charged for an oversized subtree.
+- Empty blocks (whitespace-only) are filtered out by the walker; the cap counts only non-empty blocks.
+
+### Batched alignment rule
+
+`alignBatchedResponse(walked, llmOutput)` in `src/adapter/run-batched-action.ts` is the single source of truth. It parses the LLM output with `parseOutline`, flattens it with `flattenOutlineTree`, and compares the resulting line count to the walk's node count. If they differ, the runner transparently re-runs the action through `runPerBlockAction` with the same action + settings + explicit uuid, and shows an info toast noting the fallback.
+
+The pure alignment helper is unit-tested (`src/adapter/run-batched-action.test.ts`) — happy path, drop-a-level, response too long, response too short, empty response, empty subtree, preamble + code-fence tolerance, 50-block cap, 51-vs-50 boundary.
+
+### Authoring surface
+
+- **Manage Actions → scope dropdown** shows `selection`, `block`, `subtree`, `subtree-per-block` (label: "subtree (per block)"), `subtree-batched` (label: "subtree (batched)").
+- **Import JSON** placeholder includes a `grammar-subtree` example so users have a working starter.
+- **Toolbar picker** routes both new scopes into the **Transform** bucket (they're text transformations of an entire subtree); id-prefix matching on `grammar` / `spellcheck` is bypassed when `scope` is one of the new values, so a user action like `grammar-subtree` lands in Transform rather than Fix.
+
+### Why no seed action ships this scope
+
+The two new scopes are building blocks, not opinions. The plugin's seed set still targets single-block rewrites (`spellcheck`, `grammar`, `rewrite-*`); users opt into the per-block subtree behaviour by writing their own action in `userActionsJson` or via Manage Actions. A one-line user action like `{ id, title, scope: "subtree-per-block", outputMode: "diff-panel", systemPrompt: "..." }` is enough. Revisit adding a `grammar-subtree` seed action only if the absence becomes a discoverability problem.
+
+### Out of scope for this iteration
+
+- **Parallel per-block LLM calls.** A local model on one CPU/GPU queues the requests anyway, and the per-block streaming UX is harder to follow with out-of-order completion. Sequential is the default; a `parallel: true` runtime flag is a candidate follow-up.
+- **Tree-shape preservation in the diff panel.** The panel renders a flat depth-indented card list, not a collapsible tree. Larger subtrees work fine but the visual model is "list of cards" rather than "explorer view" — that's a UI complexity trade-off, not a correctness one.
+- **Per-block action switching (mid-flight).** The single-block diff panel has an action-bar to switch the active action mid-stream; the multi-block panel does not. Adding it would mean a per-card action picker and a model switch in the middle of streaming — scope creep.
+- **Editing the keybinding on an existing per-block action.** Same caveat as §17: `registeredInvocationIds` is one-shot, so editing the JSON for an existing action's keybinding only takes effect on plugin reload. Adding a new per-block action picks its binding up immediately.
