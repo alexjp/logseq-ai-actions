@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2
+
+### Patch Changes
+
+- Add **Accept all changed (N)** bulk button to the multi-block diff panel. Marks every `pending` card whose proposal actually differs from the original as `accepted`; the user still clicks `Apply N` to commit (the bulk action only _marks_, it doesn't write back). Cards that are already `accepted`/`rejected`/`edited`/`streaming`/`empty` are left alone, as are unchanged `pending` cards (whitespace-only diffs don't count as "changed"). Shortcut: `⌘⇧A`. Complements the existing per-card ✓ and bulk `Reject remaining` buttons. No new tests (panel has no jsdom test infra).
+
 ## 1.3.1
 
 ### Patch Changes

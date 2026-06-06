@@ -1,6 +1,6 @@
 # `logseq-ai-actions` — Requirements (v1)
 
-Status: **Signed off 2026-04-23. Seed set and output-mode taxonomy extended 2026-04-25** (4 tone-rewrite variants, 2 outline modes + actions, vision support with `kind` field + `picker-replace` mode + 2 vision actions). **Per-block diff across subtree added 2026-06-06** — two new scopes (`subtree-per-block`, `subtree-batched`), new multi-block diff panel, new §18. **Retry button added 2026-06-06** — per-card ↻ glyph (multi-block) and footer button between Edit and Accept (single-block) re-invoke the LLM with the same input; batched-path retry falls through to per-block for the retried card. Changes to this document must land via a PR and be reflected in `CHANGELOG.md`.
+Status: **Signed off 2026-04-23. Seed set and output-mode taxonomy extended 2026-04-25** (4 tone-rewrite variants, 2 outline modes + actions, vision support with `kind` field + `picker-replace` mode + 2 vision actions). **Per-block diff across subtree added 2026-06-06** — two new scopes (`subtree-per-block`, `subtree-batched`), new multi-block diff panel, new §18. **Retry button added 2026-06-06** — per-card ↻ glyph (multi-block) and footer button between Edit and Accept (single-block) re-invoke the LLM with the same input; batched-path retry falls through to per-block for the retried card. **Bulk accept button added 2026-06-06** — `Accept all changed (N)` footer button + `⌘⇧A` shortcut on the multi-block panel; marks every `pending` card with a real diff as `accepted`, leaving unchanged `pending` cards and terminal-status cards alone. Changes to this document must land via a PR and be reflected in `CHANGELOG.md`.
 
 ## 1. Purpose
 
@@ -397,9 +397,9 @@ Both feed the same multi-block diff panel (next subsection) and apply per-block 
   - Two columns: `Original` (plain) and `Proposed` (or `Edit` textarea when in edit mode).
   - Per-card buttons: `✓ Accept` / `✗ Reject` / `✎ Edit` / `↻ Retry` (the Accept button is disabled while the card is `streaming` or `empty`; the Retry button is disabled while the card is `streaming`; the Retry button is hidden entirely when the runner didn't wire a `retryBlock` callback).
   - When the streaming pass is finished, the `Proposed` column renders a unified diff (red strikethrough for removed, green highlight for added) via the existing `computeDiff` helper.
-- Footer: count summary (`N accepted · N rejected · N empty · N pending · N streaming`) + `Cancel` + `Reject remaining` (marks all still-pending/streaming cards as `rejected`) + `Apply N` (writes only the accepted/edited cards, sequentially).
-- Sequential streaming: the panel drives `runOneBlock(uuid, onChunk)` one block at a time, auto-advancing as each LLM call completes. A stale-chunk guard via a `useRef`-held generation counter drops chunks from prior in-flight calls if the user clicks `Cancel` or `Reject remaining` mid-stream.
-- Keyboard: `Esc` cancels (discards pending), `⌘↵` / `Ctrl↵` applies the accepted set (disabled while streaming).
+  - Footer: count summary (`N accepted · N rejected · N empty · N pending · N streaming`) + `Cancel` + `Reject remaining` (marks all still-pending/streaming cards as `rejected`) + `Accept all changed (N)` (bulk-accepts every `pending` card whose proposal actually differs from the original; see Bulk-accept subsection below) + `Apply N` (writes only the accepted/edited cards, sequentially).
+  - Sequential streaming: the panel drives `runOneBlock(uuid, onChunk)` one block at a time, auto-advancing as each LLM call completes. A stale-chunk guard via a `useRef`-held generation counter drops chunks from prior in-flight calls if the user clicks `Cancel` or `Reject remaining` mid-stream.
+  - Keyboard: `Esc` cancels (discards pending), `⌘⇧A` bulk-accepts every changed pending card, `⌘↵` / `Ctrl↵` applies the accepted set (disabled while streaming).
 
 ### Edit-implies-accept
 
@@ -414,6 +414,27 @@ If `runOneBlock` returns an empty string (model returned nothing useful) or thro
 Both diff panels expose a "Retry" affordance that re-invokes the LLM with the same input — useful when the first response is sub-par and the user wants a fresh roll without re-picking the action from the toolbar. The single-block footer has a `Retry` button between `Edit` and `Accept` (`Reject | Edit | Retry | Accept`); the multi-block panel has a per-card `↻` glyph after the `✎` Edit button. Both are disabled while streaming and follow the same dirty-edit guard as the action-bar switch in the single-block panel: clicking Retry with unsaved edits routes through the existing `ConfirmOverlay` with copy "Re-running will replace your edited text with a fresh proposal." (multi-block panel has no edit-confirmation overlay — per-card edits are committed on the Save button and the next Retry re-streaming leaves the edit as-is until the user explicitly clicks Retry again; the card's status is `streaming` during the re-stream so the Edit button is disabled).
 
 In the per-block runner, Retry re-runs the LLM for the touched block (same body as the initial `runOneBlock` call). In the batched runner, Retry re-invokes the LLM for that one block with the original text from `textByUuid` — the cached batched proposal for that card is abandoned, other cards keep their batched proposals. The retry callback is wired as a separate `retryBlock` prop on `MultiBlockDiffPanel` so each runner can pick the right semantics without leaking its implementation to the panel.
+
+### Bulk accept (multi-block panel only)
+
+The multi-block panel footer exposes an **`Accept all changed (N)`** button that flips every `pending` card whose proposal actually differs from the original to `status: "accepted"`. This is the common-case shortcut: in a 10-block subtree where 7 cards changed and 3 didn't, the user can mark the 7 changed ones in one click instead of clicking per-card ✓ seven times. The button is positioned between `Reject remaining` and `Apply N`; a keyboard shortcut `⌘⇧A` does the same thing.
+
+**Predicate for "changed"** (a card is included in the bulk action iff all of):
+
+- `status === "pending"` (not already `accepted`/`rejected`/`edited`/`streaming`/`empty`).
+- `proposed.length > 0` (defensive — empty proposals never reach `pending` anyway, but `Apply` is disabled on empty, so we match).
+- `proposed.trim() !== original.trim()` (whitespace-only diffs don't count — trailing-newline reformatting from the LLM isn't a meaningful semantic change).
+
+**Disabled when**:
+
+- Any card is `streaming` (would race with the in-flight stream — same gate as `Apply N`'s `!allDone`).
+- The `changedPendingCount` is 0 (nothing to do — button stays visible-but-disabled, so the affordance is discoverable).
+
+**The bulk action only marks; the user still clicks `Apply N` to commit.** This preserves the review step: bulk-accept → spot-check the unchanged `pending` cards or reject a few stragglers → apply. The bulk action never touches the `Apply N` button's disabled state directly (it only affects the count by flipping `pending` → `accepted`).
+
+**No `Reject all changed` mirror.** `Reject remaining` already covers the symmetric case (rejects every `pending` AND `streaming` card); a stricter "reject just the changed ones" would only be useful in a workflow that needs `pending`-but-unchanged cards to survive untouched, which is the same workflow `Accept all changed` is built for in the first place. Adding a mirror would be clutter for no functional gain.
+
+**Unchanged `pending` cards after a bulk-accept** stay `pending` and are filtered out at apply time (no `logseq.Editor.updateBlock` call for them — the text equals the original). This is the same filtering `Apply N` already does for cards that the user never touched, so the bulk action is consistent with the existing per-card flow.
 
 ### Subtree size policy
 

@@ -265,6 +265,25 @@ export const MultiBlockDiffPanel: FunctionComponent<MultiBlockDiffPanelProps> = 
     );
   }, []);
 
+  // Bulk accept: mark every `pending` card whose proposal actually
+  // differs from the original as `accepted`. Unchanged pending cards
+  // stay `pending` (they're no-ops at apply time). Cards that are
+  // already `accepted`/`rejected`/`edited`/`streaming`/`empty` are
+  // left alone — the bulk action is additive to existing decisions.
+  // Whitespace-only diffs (`proposed.trim() === original.trim()`) do
+  // not count as "changed" — trailing-newline shenanigans from the
+  // LLM shouldn't trigger an apply call.
+  const handleAcceptAllChanged = useCallback(() => {
+    setCards((prev) =>
+      prev.map((c) => {
+        if (c.status !== "pending") return c;
+        if (c.proposed.length === 0) return c;
+        if (c.proposed.trim() === c.original.trim()) return c;
+        return { ...c, status: "accepted" as const };
+      }),
+    );
+  }, []);
+
   const counts = useMemo(() => {
     const accepted = cards.filter((c) => c.status === "accepted" || c.status === "edited").length;
     const rejected = cards.filter((c) => c.status === "rejected").length;
@@ -274,14 +293,35 @@ export const MultiBlockDiffPanel: FunctionComponent<MultiBlockDiffPanelProps> = 
     return { accepted, rejected, empty, streaming, pending, total: cards.length };
   }, [cards]);
 
-  // Global keyboard: Esc cancels, ⌘↵ applies. Same conventions as
-  // the single-block DiffPanel so users don't have to learn a second
-  // set of shortcuts.
+  // Live count of "pending cards with a real diff" — drives the
+  // `Accept all changed (N)` button label and its disabled state. A
+  // second click after the first is a no-op (count drops to 0 → button
+  // disables itself on the next render).
+  const changedPendingCount = useMemo(
+    () =>
+      cards.filter(
+        (c) =>
+          c.status === "pending" &&
+          c.proposed.length > 0 &&
+          c.proposed.trim() !== c.original.trim(),
+      ).length,
+    [cards],
+  );
+
+  // Global keyboard: Esc cancels, ⌘↵ applies, ⌘⇧A bulk-accepts every
+  // changed pending card. Same conventions as the single-block
+  // DiffPanel so users don't have to learn a second set of shortcuts
+  // for the per-card actions. The bulk-accept shortcut is gated on
+  // `changedPendingCount > 0` indirectly (the handler just calls
+  // `handleAcceptAllChanged`, which is a no-op when nothing matches).
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
         handleCancel();
+      } else if ((e.key === "A" || e.key === "a") && e.metaKey && e.shiftKey) {
+        e.preventDefault();
+        handleAcceptAllChanged();
       } else if ((e.key === "Enter" && (e.metaKey || e.ctrlKey)) || e.key === "Return") {
         e.preventDefault();
         handleApply();
@@ -289,7 +329,7 @@ export const MultiBlockDiffPanel: FunctionComponent<MultiBlockDiffPanelProps> = 
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [handleCancel, handleApply]);
+  }, [handleCancel, handleApply, handleAcceptAllChanged]);
 
   const allDone = streamingIndex >= blocks.length;
   const streamingLabel = allDone
@@ -305,7 +345,7 @@ export const MultiBlockDiffPanel: FunctionComponent<MultiBlockDiffPanelProps> = 
             <LocalRemoteBadge baseUrl={baseUrl} />
           </span>
           <span class="diff-hint">
-            <kbd>Esc</kbd> cancel · <kbd>⌘ ↵</kbd> apply
+            <kbd>Esc</kbd> cancel · <kbd>⌘⇧A</kbd> accept all · <kbd>⌘ ↵</kbd> apply
           </span>
         </header>
 
@@ -343,6 +383,19 @@ export const MultiBlockDiffPanel: FunctionComponent<MultiBlockDiffPanelProps> = 
             title="Mark every still-pending card as rejected"
           >
             Reject remaining
+          </button>
+          <button
+            type="button"
+            class="diff-btn"
+            onClick={handleAcceptAllChanged}
+            disabled={counts.streaming > 0 || changedPendingCount === 0}
+            title={
+              counts.streaming > 0
+                ? "Wait for streaming to finish"
+                : "Mark every pending card with a real change as accepted"
+            }
+          >
+            Accept all changed{changedPendingCount > 0 ? ` (${changedPendingCount})` : ""}
           </button>
           <button
             type="button"
