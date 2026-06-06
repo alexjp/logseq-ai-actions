@@ -104,6 +104,15 @@ export async function runPerBlockAction(
       const finalText = await performLLM(ctx.provider, action, text, settings, onChunk);
       return { finalText };
     },
+    // Per-block path: Retry re-invokes the LLM for the touched block
+    // with the same input — same body as `runOneBlock`. (Duplicating
+    // the 3-line closure is clearer than aliasing; the panel calls
+    // them at different points in the user flow.)
+    retryBlock: async (uuid, onChunk) => {
+      const text = textByUuid.get(uuid) ?? "";
+      const finalText = await performLLM(ctx.provider, action, text, settings, onChunk);
+      return { finalText };
+    },
   });
 
   if (accepted === null) {

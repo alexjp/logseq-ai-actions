@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1
+
+### Patch Changes
+
+- Diff panels (single-block and multi-block) get a "Retry" button that re-invokes the LLM with the same input — useful when the first response is sub-par. Single-block panel: Retry button sits between Edit and Accept in the footer (`Reject | Edit | Retry | Accept`). Multi-block panel: per-card ↻ glyph button next to the Edit ✎, visible only when the runner wires a `retryBlock` callback. In the per-block runner, Retry re-runs the LLM for the touched block (same body as the initial call); in the batched runner, Retry re-invokes the LLM for just that one block with the original text — the cached batched proposal for that card is abandoned, other cards keep theirs. Edit-mode + Retry reuses the same `ConfirmOverlay` guard the action-bar switch uses, with copy "Re-running will replace your edited text with a fresh proposal." No new tests (panel component has no DOM-test infra; runners are SDK-glue).
+
 ## 1.3.0
 
 ### Minor Changes

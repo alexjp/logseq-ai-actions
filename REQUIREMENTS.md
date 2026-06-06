@@ -1,6 +1,6 @@
 # `logseq-ai-actions` — Requirements (v1)
 
-Status: **Signed off 2026-04-23. Seed set and output-mode taxonomy extended 2026-04-25** (4 tone-rewrite variants, 2 outline modes + actions, vision support with `kind` field + `picker-replace` mode + 2 vision actions). **Per-block diff across subtree added 2026-06-06** — two new scopes (`subtree-per-block`, `subtree-batched`), new multi-block diff panel, new §18. Changes to this document must land via a PR and be reflected in `CHANGELOG.md`.
+Status: **Signed off 2026-04-23. Seed set and output-mode taxonomy extended 2026-04-25** (4 tone-rewrite variants, 2 outline modes + actions, vision support with `kind` field + `picker-replace` mode + 2 vision actions). **Per-block diff across subtree added 2026-06-06** — two new scopes (`subtree-per-block`, `subtree-batched`), new multi-block diff panel, new §18. **Retry button added 2026-06-06** — per-card ↻ glyph (multi-block) and footer button between Edit and Accept (single-block) re-invoke the LLM with the same input; batched-path retry falls through to per-block for the retried card. Changes to this document must land via a PR and be reflected in `CHANGELOG.md`.
 
 ## 1. Purpose
 
@@ -395,7 +395,7 @@ Both feed the same multi-block diff panel (next subsection) and apply per-block 
   - A `Parent` / `Child ▾` label.
   - A status pill: `pending` / `streaming` / `accepted` / `rejected` / `edited` / `empty`.
   - Two columns: `Original` (plain) and `Proposed` (or `Edit` textarea when in edit mode).
-  - Per-card buttons: `✓ Accept` / `✗ Reject` / `✎ Edit` (the Accept button is disabled while the card is `streaming` or `empty`).
+  - Per-card buttons: `✓ Accept` / `✗ Reject` / `✎ Edit` / `↻ Retry` (the Accept button is disabled while the card is `streaming` or `empty`; the Retry button is disabled while the card is `streaming`; the Retry button is hidden entirely when the runner didn't wire a `retryBlock` callback).
   - When the streaming pass is finished, the `Proposed` column renders a unified diff (red strikethrough for removed, green highlight for added) via the existing `computeDiff` helper.
 - Footer: count summary (`N accepted · N rejected · N empty · N pending · N streaming`) + `Cancel` + `Reject remaining` (marks all still-pending/streaming cards as `rejected`) + `Apply N` (writes only the accepted/edited cards, sequentially).
 - Sequential streaming: the panel drives `runOneBlock(uuid, onChunk)` one block at a time, auto-advancing as each LLM call completes. A stale-chunk guard via a `useRef`-held generation counter drops chunks from prior in-flight calls if the user clicks `Cancel` or `Reject remaining` mid-stream.
@@ -408,6 +408,12 @@ Editing a card's proposed text and clicking `Save` flips the card's status to `e
 ### Empty-response handling
 
 If `runOneBlock` returns an empty string (model returned nothing useful) or throws, the card flips to `empty` with an inline "Model returned an empty response" note and the error message (if any). The Accept button stays disabled for empty cards (writing an empty text is destructive) — the user must either Reject or use Edit to provide their own text. Empty cards are NOT included in the `Apply N` count.
+
+### Per-block Retry (single-block + multi-block panels)
+
+Both diff panels expose a "Retry" affordance that re-invokes the LLM with the same input — useful when the first response is sub-par and the user wants a fresh roll without re-picking the action from the toolbar. The single-block footer has a `Retry` button between `Edit` and `Accept` (`Reject | Edit | Retry | Accept`); the multi-block panel has a per-card `↻` glyph after the `✎` Edit button. Both are disabled while streaming and follow the same dirty-edit guard as the action-bar switch in the single-block panel: clicking Retry with unsaved edits routes through the existing `ConfirmOverlay` with copy "Re-running will replace your edited text with a fresh proposal." (multi-block panel has no edit-confirmation overlay — per-card edits are committed on the Save button and the next Retry re-streaming leaves the edit as-is until the user explicitly clicks Retry again; the card's status is `streaming` during the re-stream so the Edit button is disabled).
+
+In the per-block runner, Retry re-runs the LLM for the touched block (same body as the initial `runOneBlock` call). In the batched runner, Retry re-invokes the LLM for that one block with the original text from `textByUuid` — the cached batched proposal for that card is abandoned, other cards keep their batched proposals. The retry callback is wired as a separate `retryBlock` prop on `MultiBlockDiffPanel` so each runner can pick the right semantics without leaking its implementation to the panel.
 
 ### Subtree size policy
 

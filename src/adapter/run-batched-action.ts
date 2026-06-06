@@ -125,6 +125,14 @@ export async function runBatchedAction(
 
   const proposedByUuid = alignment.proposals;
 
+  // Original-text lookup for per-card Retry. The batched path caches
+  // the LLM's whole-outline response in `proposedByUuid`; Retry on a
+  // single card re-invokes the LLM for just that one block with the
+  // original text (see `retryBlock` below), so we need to recover
+  // `text` from the walked subtree by uuid.
+  const textByUuid = new Map<string, string>();
+  for (const n of walked.nodes) textByUuid.set(n.uuid, n.text);
+
   const panelBlocks: MultiBlockPanelBlock[] = walked.nodes.map((n) => ({
     uuid: n.uuid,
     depth: n.depth,
@@ -141,6 +149,17 @@ export async function runBatchedAction(
       const text = proposedByUuid.get(uuid) ?? "";
       onChunk(text);
       return { finalText: text };
+    },
+    // Batched path: Retry abandons the cached batched proposal for
+    // that one card and re-invokes the LLM with the original text —
+    // a per-block call, not a re-batched call. Other cards keep their
+    // batched proposals. This is the cleanest semantic for "the
+    // LLM's first response for this card wasn't great" under a
+    // single-call scope.
+    retryBlock: async (uuid, onChunk) => {
+      const text = textByUuid.get(uuid) ?? "";
+      const finalText = await performLLM(ctx.provider, action, text, settings, onChunk);
+      return { finalText };
     },
   });
 

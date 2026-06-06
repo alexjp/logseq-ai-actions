@@ -18,6 +18,14 @@ export interface ShowMultiBlockDiffOptions {
    * trimmed final text.
    */
   readonly runOneBlock: RunOneBlock;
+  /**
+   * Optional per-block Retry callback. When provided, each card gets
+   * a ↻ button that re-invokes the LLM for just that block. The
+   * per-block runner wires this to the same closure as `runOneBlock`;
+   * the batched runner wires it to a per-block LLM call that
+   * abandons the cached batched proposal for that card.
+   */
+  readonly retryBlock?: RunOneBlock;
 }
 
 /**
@@ -34,6 +42,7 @@ export function showMultiBlockDiff(
       baseUrl: options.baseUrl,
       blocks: options.blocks,
       runOneBlock: options.runOneBlock,
+      ...(options.retryBlock ? { retryBlock: options.retryBlock } : {}),
       onApply: (accepted) => teardown(accepted),
       onCancel: () => teardown(null),
     }),

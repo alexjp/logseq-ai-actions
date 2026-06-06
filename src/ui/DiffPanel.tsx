@@ -108,6 +108,10 @@ export const DiffPanel: FunctionComponent<DiffPanelProps> = (props) => {
   const [isStreaming, setIsStreaming] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pendingSwitchActionId, setPendingSwitchActionId] = useState<string | null>(null);
+  // True when the user clicked Retry while in edit mode and we need
+  // to confirm the edit-discard before re-running the LLM. Cleared on
+  // Cancel or after the confirm path runs `startStream`.
+  const [pendingRetry, setPendingRetry] = useState(false);
   const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const groupWrapRef = useRef<HTMLDivElement>(null);
@@ -209,6 +213,18 @@ export const DiffPanel: FunctionComponent<DiffPanelProps> = (props) => {
       return;
     }
     await startStream(actionId);
+  };
+
+  // Retry = re-invoke the LLM for the current action with the same
+  // input. Same edit-discard guard as the action-bar switch: if the
+  // user has unsaved edits, route through ConfirmOverlay first.
+  const handleRetry = () => {
+    if (busy) return;
+    if (isEditing && editedText !== proposed) {
+      setPendingRetry(true);
+      return;
+    }
+    void startStream(currentActionId);
   };
 
   const busy = isStreaming;
@@ -347,6 +363,15 @@ export const DiffPanel: FunctionComponent<DiffPanelProps> = (props) => {
           )}
           <button
             type="button"
+            class="diff-btn"
+            disabled={busy}
+            onClick={handleRetry}
+            title="Re-run the LLM with the same input"
+          >
+            Retry
+          </button>
+          <button
+            type="button"
             class="diff-btn diff-btn-primary"
             disabled={busy || proposed.length === 0}
             onClick={() => onAccept(isEditing ? editedText : proposed)}
@@ -355,14 +380,26 @@ export const DiffPanel: FunctionComponent<DiffPanelProps> = (props) => {
           </button>
         </footer>
 
-        {pendingSwitchActionId !== null ? (
+        {pendingSwitchActionId !== null || pendingRetry ? (
           <ConfirmOverlay
             title="Discard your edits?"
-            message="Switching to a different action will replace your edited text with a fresh proposal."
-            confirmLabel="Discard and switch"
+            message={
+              pendingRetry
+                ? "Re-running will replace your edited text with a fresh proposal."
+                : "Switching to a different action will replace your edited text with a fresh proposal."
+            }
+            confirmLabel={pendingRetry ? "Discard and retry" : "Discard and switch"}
             danger
-            onCancel={() => setPendingSwitchActionId(null)}
+            onCancel={() => {
+              setPendingSwitchActionId(null);
+              setPendingRetry(false);
+            }}
             onConfirm={() => {
+              if (pendingRetry) {
+                setPendingRetry(false);
+                void startStream(currentActionId);
+                return;
+              }
               const id = pendingSwitchActionId;
               setPendingSwitchActionId(null);
               if (id !== null) void startStream(id);

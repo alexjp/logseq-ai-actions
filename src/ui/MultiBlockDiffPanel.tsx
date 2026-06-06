@@ -34,6 +34,15 @@ export interface MultiBlockDiffPanelProps {
   readonly blocks: readonly MultiBlockPanelBlock[];
   readonly runOneBlock: RunOneBlock;
   /**
+   * Optional callback for re-running the LLM for a single block. If
+   * omitted, the per-card Retry button is hidden. The per-block runner
+   * wires this to the same closure as `runOneBlock`; the batched runner
+   * wires it to a closure that re-invokes the LLM for that one block
+   * with the original text — abandoning the cached batched proposal for
+   * that card only. Other cards keep their batched proposals.
+   */
+  readonly retryBlock?: RunOneBlock;
+  /**
    * Resolves with the blocks the user accepted (status `accepted` or
    * `edited`). Cards in `pending` / `streaming` / `rejected` / `empty`
    * are excluded. Resolve with `null` on Cancel.
@@ -72,7 +81,7 @@ function initialCards(blocks: readonly MultiBlockPanelBlock[]): CardState[] {
 }
 
 export const MultiBlockDiffPanel: FunctionComponent<MultiBlockDiffPanelProps> = (props) => {
-  const { blocks, runOneBlock, onApply, onCancel, actionTitle, baseUrl } = props;
+  const { blocks, runOneBlock, retryBlock, onApply, onCancel, actionTitle, baseUrl } = props;
   const [cards, setCards] = useState<CardState[]>(() => initialCards(blocks));
   // Index of the card currently being streamed. -1 = initial state
   // (kicks off on mount); blocks.length = all done.
@@ -191,6 +200,63 @@ export const MultiBlockDiffPanel: FunctionComponent<MultiBlockDiffPanelProps> = 
     );
   }, []);
 
+  // Per-card Retry: re-invoke the LLM for a single block. The runner
+  // wires this to either the same closure as `runOneBlock` (per-block
+  // runner) or a per-block LLM call (batched runner). Reuses the same
+  // `streamGen` + `settledRef` guards as the main sequential stream so
+  // a Cancel-while-Retry discards stragglers, and a card already
+  // mid-stream can't be retried again (button is disabled).
+  const handleCardRetry = useCallback(
+    (i: number) => {
+      if (!retryBlock) return;
+      const block = blocks[i];
+      if (!block) return;
+      const myGen = ++streamGen.current;
+      // Snap the card to streaming + clear the prior proposal so the
+      // diff view doesn't briefly show old text overlapping the new
+      // stream. If the retry errors out, `errorMessage` is set; if it
+      // succeeds with empty text, the auto-reject path below flips
+      // status to "empty".
+      setCards((prev) =>
+        prev.map((c, idx) =>
+          idx === i
+            ? { ...c, status: "streaming", proposed: "", editedText: null, errorMessage: null }
+            : c,
+        ),
+      );
+      void (async () => {
+        try {
+          const result = await retryBlock(block.uuid, (chunk) => {
+            if (settledRef.current || streamGen.current !== myGen) return;
+            setCards((prev) =>
+              prev.map((c, idx) => (idx === i ? { ...c, proposed: c.proposed + chunk } : c)),
+            );
+          });
+          if (settledRef.current || streamGen.current !== myGen) return;
+          setCards((prev) =>
+            prev.map((c, idx) => {
+              if (idx !== i) return c;
+              if (result.finalText.trim().length === 0) {
+                return { ...c, status: "empty" as const };
+              }
+              return { ...c, proposed: result.finalText, status: "pending" as const };
+            }),
+          );
+        } catch (err) {
+          if (settledRef.current || streamGen.current !== myGen) return;
+          setCards((prev) =>
+            prev.map((c, idx) =>
+              idx === i
+                ? { ...c, status: "empty" as const, errorMessage: (err as Error).message }
+                : c,
+            ),
+          );
+        }
+      })();
+    },
+    [retryBlock, blocks],
+  );
+
   const handleRejectAllPending = useCallback(() => {
     setCards((prev) =>
       prev.map((c) =>
@@ -254,6 +320,7 @@ export const MultiBlockDiffPanel: FunctionComponent<MultiBlockDiffPanelProps> = 
               onAccept={() => handleCardAccept(i)}
               onReject={() => handleCardReject(i)}
               onEdit={(text) => handleCardEdit(i, text)}
+              {...(retryBlock ? { onRetry: () => handleCardRetry(i) } : {})}
             />
           ))}
         </section>
@@ -303,6 +370,13 @@ interface BlockCardProps {
   readonly onAccept: () => void;
   readonly onReject: () => void;
   readonly onEdit: (text: string) => void;
+  /**
+   * Optional Retry callback. When provided, a per-card ↻ button is
+   * rendered next to the Edit glyph. Disabled while the card is
+   * streaming (Retry is a "the previous response wasn't great"
+   * affordance — retrying during a stream doesn't make sense).
+   */
+  readonly onRetry?: () => void;
 }
 
 const BlockCard: FunctionComponent<BlockCardProps> = ({
@@ -311,6 +385,7 @@ const BlockCard: FunctionComponent<BlockCardProps> = ({
   onAccept,
   onReject,
   onEdit,
+  onRetry,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editDraft, setEditDraft] = useState(card.editedText ?? card.proposed);
@@ -411,6 +486,18 @@ const BlockCard: FunctionComponent<BlockCardProps> = ({
               >
                 ✎
               </button>
+              {onRetry ? (
+                <button
+                  type="button"
+                  class="multi-icon-btn multi-icon-retry"
+                  onClick={onRetry}
+                  disabled={card.status === "streaming"}
+                  title="Re-run the LLM for this block"
+                  aria-label="Retry"
+                >
+                  ↻
+                </button>
+              ) : null}
             </>
           ) : (
             <>
